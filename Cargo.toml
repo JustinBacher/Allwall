@@ -1,0 +1,21 @@
+[package]
+name = "allwall"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+gstreamer = "0.22"
+gstreamer-app = "0.22"
+gstreamer-video = "0.22"
+wgpu = "0.20"
+winit = "0.29"
+bytemuck = { version = "1.15", features = ["derive"] }
+thiserror = "1"
+env_logger = "0.11.8"
+clap = { version = "4.5.57", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+log = "0.4"
+
+[dev-dependencies]
+anyhow = "1"
+
