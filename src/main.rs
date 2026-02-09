@@ -4,14 +4,15 @@ use clap::Parser;
 
 mod cli;
 mod decode;
+mod engine;
 mod error;
 mod prelude;
-mod renderer;
+mod sources;
 mod utils;
 
 #[derive(Parser, Debug)]
 #[command(name = "allwall")]
-#[command(about = "Zero-Copy Wayland Wallpaper (Rust)", long_about = None)]
+#[command(about = "Allwall a zero-copy wayland wallpaper", long_about = None)]
 struct Cli {
 	#[command(subcommand)]
 	command: Commands,

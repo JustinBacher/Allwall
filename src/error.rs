@@ -11,4 +11,10 @@ pub enum Error {
 
 	#[error(transparent)]
 	IO(#[from] std::io::Error),
+
+	#[error(transparent)]
+	Image(#[from] image::ImageError),
+
+	#[error(transparent)]
+	Calloop(#[from] calloop::Error),
 }
