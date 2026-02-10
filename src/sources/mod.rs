@@ -1,6 +1,8 @@
-mod still;
+mod loader;
+pub mod still;
 
 use crate::engine::{Context, Texture};
+pub use loader::ImageLoader;
 
 use image::DynamicImage;
 

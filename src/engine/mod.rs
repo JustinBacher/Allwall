@@ -9,7 +9,7 @@ use std::{
 	time::{Duration, Instant},
 };
 
-use crate::prelude::Result;
+use crate::prelude::*;
 use log::*;
 
 use calloop::EventLoop;
@@ -42,17 +42,12 @@ use smithay_client_toolkit::{
 };
 
 const FPS: f32 = 60.0;
-static FRAMETIME: Lazy<Duration> = Lazy::new(|| Duration::from_secs_f32(1.0 / FPS));
 const MIN_FPS: f32 = 5.0;
-static MAX_FRAMETIME: Lazy<Duration> = Lazy::new(|| Duration::from_secs_f32(1.0 / MIN_FPS));
 
 pub use context::Context;
 pub use texture::Texture;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum AppEvent {
-	Draw,
-}
+use crate::sources::{Animation, RenderState};
 
 pub struct App {
 	registry_state: RegistryState,
@@ -60,22 +55,20 @@ pub struct App {
 	compositor_state: CompositorState,
 	layer_shell: LayerShell,
 
-	// animation: Box<dyn Animation>,
-
-	// drop ctx after animation
-	ctx: Context,
-	// Connection and Layer needs to be dropped after ctx
-	conn: Connection,
-	layer: LayerSurface,
+	animation: Box<dyn Animation>,
 
 	img_dir: PathBuf,
 	interval: Duration,
 	configured: bool,
 	frame_timer: FrameTimer,
+
+	ctx: Context,
+	conn: Connection,
+	layer: LayerSurface,
 }
 
 impl App {
-	pub fn run() -> Result<()> {
+	pub fn run(img_dir: PathBuf, interval: Duration) -> Result<()> {
 		let conn = Connection::connect_to_env().unwrap();
 		let (globals, queue) = registry_queue_init::<App>(&conn).unwrap();
 		let qh = queue.handle();
@@ -112,6 +105,19 @@ impl App {
 
 		let ctx = pollster::block_on(Context::new(&conn, &layer, (256, 256)));
 
+		let initial_img_a = Self::load_random_img(&img_dir)
+			.ok_or_else(|| Error::NoImages(f!("No images found in {}", img_dir.display())))?;
+		let initial_img_b = Self::load_random_img(&img_dir)
+			.ok_or_else(|| Error::NoImages(f!("No images found in {}", img_dir.display())))?;
+
+		use crate::sources::still::Fade;
+		let animation = Box::new(Fade::new(
+			&initial_img_a,
+			&initial_img_b,
+			Duration::from_secs(8),
+			&ctx,
+		));
+
 		let mut event_loop: EventLoop<App> = EventLoop::try_new().unwrap();
 		let event_loop_handler = event_loop.handle();
 
@@ -121,8 +127,8 @@ impl App {
 			output_state,
 			compositor_state,
 			layer_shell,
+			animation,
 			ctx,
-			// animation,
 			layer,
 
 			img_dir,
@@ -136,30 +142,31 @@ impl App {
 			|_, _, app| {
 				if app.frame_timer.start() {
 					app.draw();
-					// if app.animation.is_finished() {
-					// 	app.frame_timer.set_fps(MIN_FPS);
-					// } else {
-					// 	app.frame_timer.set_fps(FPS);
-					// }
+					if matches!(app.animation.state(), RenderState::Complete) {
+						app.frame_timer.set_fps(MIN_FPS);
+					} else {
+						app.frame_timer.set_fps(FPS);
+					}
 				}
 				TimeoutAction::ToInstant(app.frame_timer.next_frame())
 			},
 		);
 
-		event_loop_handler.insert_source(Timer::from_duration(app.interval), |_, _, app| {
-			// match app.load_img() {
-			// 	Ok(img) => {
-			// 		app.animation.update_img(&img, &app.ctx);
-			// 	}
-			// 	Err(e) => {
-			// 		error!("Could not load new img: {e}");
-			// 	}
-			// }
-			TimeoutAction::ToDuration(app.interval)
-		});
+		let _ =
+			event_loop_handler.insert_source(Timer::from_duration(app.interval), |_, _, app| {
+				match app.load_img_result() {
+					Ok(img) => {
+						app.animation.update_img(&img, &app.ctx);
+					}
+					Err(e) => {
+						error!("Could not load new img: {e}");
+					}
+				}
+				TimeoutAction::ToDuration(app.interval)
+			});
 
 		let loop_signal = event_loop.get_signal();
-		ctrlc::set_handler(move || {
+		let _ = ctrlc::set_handler(move || {
 			info!("SIGTERM/SIGINT/SIGHUP received, exiting");
 			loop_signal.stop();
 			loop_signal.wakeup();
@@ -167,12 +174,12 @@ impl App {
 		WaylandSource::new(app.conn.clone(), queue)
 			.insert(event_loop.handle().into())
 			.unwrap();
-		event_loop.run(None, &mut app, |_| ());
+		let _ = event_loop.run(None, &mut app, |_| ());
 		Ok(())
 	}
 
 	fn draw(&mut self) {
-		// self.animation.render(&self.ctx);
+		self.animation.render(&self.ctx);
 	}
 
 	fn load_random_img(dir: &Path) -> Option<DynamicImage> {
@@ -200,6 +207,11 @@ impl App {
 
 	fn load_img(&self) -> Option<DynamicImage> {
 		Self::load_random_img(&self.img_dir)
+	}
+
+	fn load_img_result(&self) -> Result<DynamicImage> {
+		Self::load_random_img(&self.img_dir)
+			.ok_or_else(|| Error::NoImages(f!("{}", self.img_dir.display())))
 	}
 }
 impl CompositorHandler for App {

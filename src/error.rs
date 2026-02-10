@@ -2,10 +2,8 @@
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-	/// For starter, to remove as code matures.
 	#[error("Generic error: {0}")]
 	Generic(String),
-	/// For starter, to remove as code matures.
 	#[error("Static error: {0}")]
 	Static(&'static str),
 
@@ -17,4 +15,19 @@ pub enum Error {
 
 	#[error(transparent)]
 	Calloop(#[from] calloop::Error),
+
+	#[error("Wayland error: {0}")]
+	Wayland(String),
+
+	#[error(transparent)]
+	WGPU(#[from] wgpu::Error),
+
+	#[error("No images found in directory: {0}")]
+	NoImages(String),
+
+	#[error("Not a directory: {0}")]
+	NotADirectory(String),
+
+	#[error("Surface error: {0}")]
+	Surface(String),
 }

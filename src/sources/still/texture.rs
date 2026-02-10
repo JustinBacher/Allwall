@@ -42,14 +42,9 @@ impl Texture {
 		});
 
 		queue.write_texture(
-			wgpu::ImageCopyTexture {
-				aspect: wgpu::TextureAspect::All,
-				texture: &texture,
-				mip_level: 0,
-				origin: wgpu::Origin3d::ZERO,
-			},
+			texture.as_image_copy(),
 			&rgba,
-			wgpu::ImageDataLayout {
+			wgpu::TexelCopyBufferLayout {
 				offset: 0,
 				bytes_per_row: Some(4 * width),
 				rows_per_image: Some(height),
@@ -64,7 +59,7 @@ impl Texture {
 			address_mode_w: wgpu::AddressMode::ClampToEdge,
 			mag_filter: wgpu::FilterMode::Linear,
 			min_filter: wgpu::FilterMode::Linear,
-			mipmap_filter: wgpu::FilterMode::Nearest,
+			mipmap_filter: wgpu::MipmapFilterMode::Nearest,
 			..Default::default()
 		});
 

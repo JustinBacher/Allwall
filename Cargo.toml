@@ -32,6 +32,7 @@ clap_config = "0.1.1"
 serde = { version = "1.0", features = ["derive"] }
 config = "0.15"
 derive_more = { version = "2.0", features = ["display"] }
+keyframe = "1"
 
 [dev-dependencies]
 anyhow = "1"

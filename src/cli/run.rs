@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
 use clap::{value_parser, Parser, ValueEnum};
 use clap_config::ClapConfig;
@@ -21,12 +22,12 @@ enum Mode {
 #[derive(ClapConfig, Parser, Debug)]
 #[command(name = "Allwall")]
 pub struct Run {
-	/// Path to image/video file or directry of images/videos to use as wallpaper
-	#[arg(short, long)]
+	/// Path to image/video file or directory of images/videos to use as wallpaper
+	#[arg(long)]
 	path: PathBuf,
 
 	/// How the images/videos are displayed
-	#[arg(short, long, default_value_t = Mode::default())]
+	#[arg(short, long, default_value = "stretch")]
 	mode: Mode,
 
 	/// Whether to play sound when using a video as wallpaper
@@ -34,7 +35,7 @@ pub struct Run {
 	play_audio: bool,
 
 	/// Framerate. Must be greater than 5
-	#[arg(value_parser = value_parser!(u32).range(5..), alias = "framerate", default_value_t = 60)]
+	#[arg(short, long, default_value_t = 60)]
 	fps: u32,
 }
 
@@ -46,6 +47,23 @@ impl Run {
 
 impl AllwallCommand for Run {
 	async fn execute(&self) -> Result<()> {
-		Ok(())
+		let path = &self.path;
+
+		if !path.exists() {
+			return Err(Error::Generic(f!(
+				"Path does not exist: {}",
+				path.display()
+			)));
+		}
+
+		let img_dir = if path.is_file() {
+			path.parent().unwrap().to_path_buf()
+		} else {
+			path.clone()
+		};
+
+		let interval = Duration::from_secs(60);
+
+		crate::engine::App::run(img_dir, interval)
 	}
 }
