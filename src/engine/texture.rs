@@ -2,8 +2,9 @@ use std::path::Path;
 
 use crate::prelude::Result;
 use image::GenericImageView;
+use log::info;
 
-use crate::engine::Context;
+use super::Context;
 
 pub struct Texture {
 	texture: wgpu::Texture,
@@ -19,10 +20,13 @@ impl Texture {
 	}
 
 	pub fn from_image(img: &image::DynamicImage, ctx: &Context) -> Self {
+		info!("Texture::from_image called");
 		let device = ctx.device();
 		let queue = ctx.queue();
 		let rgba = img.to_rgba8();
 		let (width, height) = img.dimensions();
+
+		info!("Creating texture: {}x{}, RGBA format", width, height);
 
 		let size = wgpu::Extent3d {
 			width,
@@ -31,20 +35,23 @@ impl Texture {
 		};
 
 		let texture = device.create_texture(&wgpu::TextureDescriptor {
-			label: None,
+			label: Some("wallpaper_texture"),
 			size,
 			mip_level_count: 1,
 			sample_count: 1,
 			dimension: wgpu::TextureDimension::D2,
 			format: wgpu::TextureFormat::Rgba8UnormSrgb,
-			usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+			usage: wgpu::TextureUsages::TEXTURE_BINDING
+				| wgpu::TextureUsages::COPY_DST
+				| wgpu::TextureUsages::RENDER_ATTACHMENT,
 			view_formats: &[],
 		});
+		info!("Texture created successfully");
 
 		queue.write_texture(
 			texture.as_image_copy(),
 			&rgba,
-			wgpu::TexelCopyBufferLayout {
+			wgpu::ImageDataLayout {
 				offset: 0,
 				bytes_per_row: Some(4 * width),
 				rows_per_image: Some(height),
@@ -59,7 +66,7 @@ impl Texture {
 			address_mode_w: wgpu::AddressMode::ClampToEdge,
 			mag_filter: wgpu::FilterMode::Linear,
 			min_filter: wgpu::FilterMode::Linear,
-			mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+			mipmap_filter: wgpu::FilterMode::Nearest,
 			..Default::default()
 		});
 
@@ -71,9 +78,9 @@ impl Texture {
 		}
 	}
 
-	// pub fn texture(&self) -> &wgpu::Texture {
-	//     &self.texture
-	// }
+	pub fn texture(&self) -> &wgpu::Texture {
+		&self.texture
+	}
 
 	pub fn view(&self) -> &wgpu::TextureView {
 		&self.view

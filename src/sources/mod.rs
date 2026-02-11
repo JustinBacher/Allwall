@@ -1,24 +1,30 @@
-mod loader;
+mod media_detector;
 pub mod still;
 
 use crate::engine::{Context, Texture};
-pub use loader::ImageLoader;
+pub use media_detector::{MediaDetector, MediaType};
 
 use image::DynamicImage;
+use std::time::Duration;
 
 use wgpu::util::DeviceExt;
 
-pub trait Animation {
-	fn render(&mut self, ctx: &Context);
-	fn update_img(&mut self, img: &DynamicImage, ctx: &Context);
-	fn state(&self) -> &RenderState;
+pub trait Source {
+	fn render(&self, ctx: &Context);
+	fn texture(&self) -> &Texture;
+	fn update_texture(&mut self, img: &DynamicImage, ctx: &Context);
+	fn state(&self) -> &RendererState;
 }
 
-pub enum RenderState {
-	Complete,
+#[derive(Debug, Default)]
+pub enum RendererState {
+	#[default]
 	Loading,
-	Loaded,
-	Playing,
+	Displaying,
+	Transitioning {
+		elapsed: Duration,
+		total_duration: Duration,
+	},
 }
 
 #[repr(C)]
@@ -76,28 +82,24 @@ impl Vertex {
 	}
 }
 
-pub const TOP_LEFT: Vertex = Vertex {
-	position: Vec3::new(0.0, 0.0, 0.0),
-	tex_coords: Vec2::new(0.0, 0.0),
-};
-
-pub const TOP_RIGHT: Vertex = Vertex {
-	position: Vec3::new(-1.0, -1.0, 0.0),
-	tex_coords: Vec2::new(0.0, 1.0),
-};
-
-pub const BOTTOM_LEFT: Vertex = Vertex {
-	position: Vec3::new(1.0, -1.0, 0.0),
-	tex_coords: Vec2::new(1.0, 1.0),
-};
-
-pub const BOTTOM_RIGHT: Vertex = Vertex {
-	position: Vec3::new(1.0, 1.0, 0.0),
-	tex_coords: Vec2::new(1.0, 0.0),
-};
-
-pub const VERTICES: &[Vertex] = &[TOP_LEFT, TOP_RIGHT, BOTTOM_RIGHT, BOTTOM_LEFT];
-
+pub const VERTICES: &[Vertex] = &[
+	Vertex {
+		position: Vec3::new(-1.0, 1.0, 0.0),
+		tex_coords: Vec2::new(0.0, 0.0),
+	},
+	Vertex {
+		position: Vec3::new(-1.0, -1.0, 0.0),
+		tex_coords: Vec2::new(0.0, 1.0),
+	},
+	Vertex {
+		position: Vec3::new(1.0, -1.0, 0.0),
+		tex_coords: Vec2::new(1.0, 1.0),
+	},
+	Vertex {
+		position: Vec3::new(1.0, 1.0, 0.0),
+		tex_coords: Vec2::new(1.0, 0.0),
+	},
+];
 pub const INDICES: &[u16] = &[0, 1, 3, 2, 3, 1];
 
 pub fn create_vertex_buffer(ctx: &Context) -> wgpu::Buffer {
@@ -223,7 +225,7 @@ pub fn create_pipeline(
 		.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 			label: None,
 			bind_group_layouts,
-			immediate_size: 0,
+			push_constant_ranges: &[],
 		});
 
 	ctx.device()
@@ -232,13 +234,13 @@ pub fn create_pipeline(
 			layout: Some(&layout),
 			vertex: wgpu::VertexState {
 				module: shader,
-				entry_point: Some("vs_main"),
+				entry_point: "vs_main",
 				buffers: &[Vertex::desc()],
 				compilation_options: Default::default(),
 			},
 			fragment: Some(wgpu::FragmentState {
 				module: shader,
-				entry_point: Some("fs_main"),
+				entry_point: "fs_main",
 				targets: &[Some(wgpu::ColorTargetState {
 					format: config.format,
 					blend: Some(wgpu::BlendState::REPLACE),
@@ -261,7 +263,6 @@ pub fn create_pipeline(
 				mask: !0,
 				alpha_to_coverage_enabled: false,
 			},
-			multiview_mask: None,
-			cache: None,
+			multiview: None,
 		})
 }

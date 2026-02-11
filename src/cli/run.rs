@@ -37,6 +37,14 @@ pub struct Run {
 	/// Framerate. Must be greater than 5
 	#[arg(short, long, default_value_t = 60)]
 	fps: u32,
+
+	/// Duration of transitions between images (in seconds)
+	#[arg(short, long, default_value_t = 1)]
+	transition_duration: u64,
+
+	/// Interval between image rotations (in seconds)
+	#[arg(short, long, default_value_t = 10)]
+	rotation_interval: u64,
 }
 
 impl Run {
@@ -62,8 +70,9 @@ impl AllwallCommand for Run {
 			path.clone()
 		};
 
-		let interval = Duration::from_secs(60);
+		let transition_duration = Duration::from_secs(self.transition_duration);
+		let rotation_interval = Duration::from_secs(self.rotation_interval);
 
-		crate::engine::App::run(img_dir, interval)
+		crate::engine::Engine::run(img_dir, transition_duration, rotation_interval)
 	}
 }

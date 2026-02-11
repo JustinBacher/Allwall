@@ -2,6 +2,7 @@ use std::{ffi::c_void, ptr::NonNull};
 
 use client::Connection;
 use client::Proxy;
+use log::debug;
 use raw_window_handle::{
 	RawDisplayHandle, RawWindowHandle, WaylandDisplayHandle, WaylandWindowHandle,
 };
@@ -17,7 +18,7 @@ pub struct Context {
 
 impl Context {
 	pub async fn new(conn: &Connection, layer: &LayerSurface, size: (u32, u32)) -> Self {
-		let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+		let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
 			backends: wgpu::Backends::PRIMARY,
 			..Default::default()
 		});
@@ -26,7 +27,7 @@ impl Context {
 			NonNull::new(layer.wl_surface().id().as_ptr() as *mut c_void).unwrap(),
 		));
 		let raw_display_handle = RawDisplayHandle::Wayland(WaylandDisplayHandle::new(
-			NonNull::new(conn.backend().display_id().as_ptr() as *mut c_void).unwrap(),
+			NonNull::new(conn.backend().display_ptr() as *mut c_void).unwrap(),
 		));
 
 		let surface = unsafe {
@@ -47,28 +48,34 @@ impl Context {
 			.expect("Failed to get adapter");
 
 		let (device, queue) = adapter
-			.request_device(&wgpu::DeviceDescriptor {
-				label: None,
-				required_features: wgpu::Features::empty(),
-				required_limits: wgpu::Limits {
-					max_texture_dimension_2d: 16384,
-					..Default::default()
+			.request_device(
+				&wgpu::DeviceDescriptor {
+					label: None,
+					required_features: wgpu::Features::empty(),
+					required_limits: wgpu::Limits {
+						max_texture_dimension_2d: 16384,
+						..Default::default()
+					},
 				},
-				..Default::default()
-			})
+				None,
+			)
 			.await
 			.expect("Failed to get device");
 
 		let surface_caps = surface.get_capabilities(&adapter);
+		debug!("Supported present modes: {:?}", surface_caps.present_modes);
 		let surface_format = surface_caps
 			.formats
 			.iter()
 			.find(|f| f.is_srgb())
-			.unwrap_or(&surface_caps.formats[0]);
+			.copied()
+			.unwrap_or(surface_caps.formats[0]);
+
+		debug!("Surface format: {:?}", surface_format);
 
 		let config = wgpu::SurfaceConfiguration {
 			usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-			format: *surface_format,
+			format: surface_format,
 			width: size.0,
 			height: size.1,
 			present_mode: wgpu::PresentMode::AutoVsync,

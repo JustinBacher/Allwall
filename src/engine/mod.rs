@@ -2,14 +2,13 @@ mod context;
 mod texture;
 
 use image::DynamicImage;
-use once_cell::sync::Lazy;
 use rand::seq::SliceRandom;
 use std::{
 	path::{Path, PathBuf},
 	time::{Duration, Instant},
 };
 
-use crate::prelude::*;
+use crate::prelude::{Error, Result};
 use log::*;
 
 use calloop::EventLoop;
@@ -25,21 +24,17 @@ use smithay_client_toolkit::{
 	compositor::{CompositorHandler, CompositorState, Region},
 	delegate_compositor, delegate_layer, delegate_output, delegate_registry,
 	output::{OutputHandler, OutputState},
-	reexports::{
-		calloop::{
-			self,
-			timer::{TimeoutAction, Timer},
-		},
-		calloop_wayland_source::WaylandSource,
-		client,
-	},
+	reexports::{calloop_wayland_source::WaylandSource, client},
 	registry::{ProvidesRegistryState, RegistryState},
-	registry_handlers,
 	shell::{
 		wlr_layer::{Anchor, Layer, LayerShell, LayerShellHandler, LayerSurface},
 		WaylandSurface,
 	},
 };
+
+use calloop::timer::{TimeoutAction, Timer};
+
+use crate::sources::Source;
 
 const FPS: f32 = 60.0;
 const MIN_FPS: f32 = 5.0;
@@ -47,18 +42,15 @@ const MIN_FPS: f32 = 5.0;
 pub use context::Context;
 pub use texture::Texture;
 
-use crate::sources::{Animation, RenderState};
-
-pub struct App {
+pub struct Engine {
 	registry_state: RegistryState,
 	output_state: OutputState,
 	compositor_state: CompositorState,
 	layer_shell: LayerShell,
 
-	animation: Box<dyn Animation>,
-
+	current_source: Box<dyn Source>,
 	img_dir: PathBuf,
-	interval: Duration,
+	rotation_interval: Duration,
 	configured: bool,
 	frame_timer: FrameTimer,
 
@@ -67,19 +59,32 @@ pub struct App {
 	layer: LayerSurface,
 }
 
-impl App {
-	pub fn run(img_dir: PathBuf, interval: Duration) -> Result<()> {
-		let conn = Connection::connect_to_env().unwrap();
-		let (globals, queue) = registry_queue_init::<App>(&conn).unwrap();
-		let qh = queue.handle();
+impl Engine {
+	pub fn run(
+		img_dir: PathBuf,
+		transition_duration: Duration,
+		rotation_interval: Duration,
+	) -> Result<()> {
+		let total_start = Instant::now();
+		info!("Starting Allwall...");
 
+		let start = Instant::now();
+		info!("Connecting to Wayland...");
+		let conn = Connection::connect_to_env().unwrap();
+		let (globals, queue) = registry_queue_init::<Engine>(&conn).unwrap();
+		let qh = queue.handle();
+		info!("Wayland connected in {:?}", start.elapsed());
+
+		let start = Instant::now();
 		let registry_state = RegistryState::new(&globals);
 		let compositor_state =
 			CompositorState::bind(&globals, &qh).expect("Compositor not available");
 		let output_state = OutputState::new(&globals, &qh);
 		let layer_shell = LayerShell::bind(&globals, &qh).expect("Layer shell not available");
 		let surface = compositor_state.create_surface(&qh);
+		info!("Wayland protocols bound in {:?}", start.elapsed());
 
+		let start = Instant::now();
 		let layer = layer_shell.create_layer_surface(
 			&qh,
 			surface,
@@ -102,84 +107,85 @@ impl App {
 		}
 
 		layer.commit();
+		info!("Layer surface created in {:?}", start.elapsed());
 
+		let start = Instant::now();
 		let ctx = pollster::block_on(Context::new(&conn, &layer, (256, 256)));
+		info!("WGPU context created in {:?}", start.elapsed());
 
-		let initial_img_a = Self::load_random_img(&img_dir)
-			.ok_or_else(|| Error::NoImages(f!("No images found in {}", img_dir.display())))?;
-		let initial_img_b = Self::load_random_img(&img_dir)
-			.ok_or_else(|| Error::NoImages(f!("No images found in {}", img_dir.display())))?;
+		let start = Instant::now();
+		let initial_img = Self::load_random_img(&img_dir)
+			.ok_or_else(|| Error::NoImages(format!("No images found in {}", img_dir.display())))?;
+		info!("Initial image loaded in {:?}", start.elapsed());
 
-		use crate::sources::still::Fade;
-		let animation = Box::new(Fade::new(
-			&initial_img_a,
-			&initial_img_b,
-			Duration::from_secs(8),
-			&ctx,
-		));
+		let start = Instant::now();
+		use crate::sources::still::Still;
+		let current_source = Box::new(Still::new(&initial_img, &ctx));
+		info!("Still source initialized in {:?}", start.elapsed());
 
-		let mut event_loop: EventLoop<App> = EventLoop::try_new().unwrap();
+		let engine_init_start = Instant::now();
+		let mut event_loop: EventLoop<Engine> = EventLoop::try_new().unwrap();
 		let event_loop_handler = event_loop.handle();
-
-		let mut app = Self {
+		let mut engine = Engine {
 			conn,
 			registry_state,
 			output_state,
 			compositor_state,
 			layer_shell,
-			animation,
+			current_source,
 			ctx,
 			layer,
 
 			img_dir,
-			interval,
+			rotation_interval,
 			configured: false,
 			frame_timer: FrameTimer::new(FPS),
 		};
 
+		info!("Engine initialized in {:?}", engine_init_start.elapsed());
+		info!("Total startup time: {:?}", total_start.elapsed());
+
 		let _ = event_loop_handler.insert_source(
-			Timer::from_deadline(app.frame_timer.next_frame()),
-			|_, _, app| {
-				if app.frame_timer.start() {
-					app.draw();
-					if matches!(app.animation.state(), RenderState::Complete) {
-						app.frame_timer.set_fps(MIN_FPS);
-					} else {
-						app.frame_timer.set_fps(FPS);
-					}
-				}
-				TimeoutAction::ToInstant(app.frame_timer.next_frame())
+			Timer::from_deadline(engine.frame_timer.next_frame()),
+			|_, _, engine| {
+				engine.current_source.render(&engine.ctx);
+				TimeoutAction::ToInstant(engine.frame_timer.next_frame())
 			},
 		);
 
-		let _ =
-			event_loop_handler.insert_source(Timer::from_duration(app.interval), |_, _, app| {
-				match app.load_img_result() {
+		let _ = event_loop_handler.insert_source(
+			Timer::from_duration(engine.rotation_interval),
+			|_, _, engine| {
+				match engine.load_img_result() {
 					Ok(img) => {
-						app.animation.update_img(&img, &app.ctx);
+						info!("Loading new image");
+						engine.current_source.update_texture(&img, &engine.ctx);
 					}
 					Err(e) => {
 						error!("Could not load new img: {e}");
 					}
 				}
-				TimeoutAction::ToDuration(app.interval)
-			});
+				TimeoutAction::ToDuration(engine.rotation_interval)
+			},
+		);
 
-		let loop_signal = event_loop.get_signal();
-		let _ = ctrlc::set_handler(move || {
-			info!("SIGTERM/SIGINT/SIGHUP received, exiting");
-			loop_signal.stop();
-			loop_signal.wakeup();
-		});
-		WaylandSource::new(app.conn.clone(), queue)
-			.insert(event_loop.handle().into())
-			.unwrap();
-		let _ = event_loop.run(None, &mut app, |_| ());
+		ctrlc::set_handler({
+			let loop_signal = event_loop.get_signal();
+			move || {
+				info!("SIGTERM/SIGINT/SIGHUP received, exiting");
+				loop_signal.stop();
+				loop_signal.wakeup();
+			}
+		})
+		.unwrap();
+
+		WaylandSource::new(engine.conn.clone(), queue)
+			.insert(event_loop.handle())
+			.map_err(|e| Error::Generic(format!("Failed to insert wayland source: {}", e)))?;
+
+		event_loop.run(None, &mut engine, |_| ())?;
+
 		Ok(())
-	}
-
-	fn draw(&mut self) {
-		self.animation.render(&self.ctx);
 	}
 
 	fn load_random_img(dir: &Path) -> Option<DynamicImage> {
@@ -191,30 +197,32 @@ impl App {
 			.map(|d| d.path())
 			.filter(|p| p.is_file())
 			.collect();
+
+		if files.is_empty() {
+			return None;
+		}
+
 		files.shuffle(&mut rng);
 		files
 			.into_iter()
 			.filter_map(|p| {
-				info!("Attempting to load {}", p.display());
+				info!("Attempting to load image: {}", p.display());
 				image::open(&p).ok()
 			})
 			.next()
-			.map(|i| {
-				info!("success");
-				i
-			})
-	}
-
-	fn load_img(&self) -> Option<DynamicImage> {
-		Self::load_random_img(&self.img_dir)
 	}
 
 	fn load_img_result(&self) -> Result<DynamicImage> {
-		Self::load_random_img(&self.img_dir)
-			.ok_or_else(|| Error::NoImages(f!("{}", self.img_dir.display())))
+		Self::load_random_img(&self.img_dir).ok_or_else(|| {
+			Error::NoImages(format!(
+				"Unable to load any image from {}",
+				self.img_dir.display()
+			))
+		})
 	}
 }
-impl CompositorHandler for App {
+
+impl CompositorHandler for Engine {
 	fn scale_factor_changed(
 		&mut self,
 		_conn: &Connection,
@@ -222,7 +230,6 @@ impl CompositorHandler for App {
 		_surface: &wl_surface::WlSurface,
 		_new_factor: i32,
 	) {
-		// Not needed for this example.
 	}
 
 	fn transform_changed(
@@ -232,7 +239,6 @@ impl CompositorHandler for App {
 		_surface: &wl_surface::WlSurface,
 		_new_transform: wl_output::Transform,
 	) {
-		// Not needed for this example.
 	}
 
 	fn frame(
@@ -251,7 +257,6 @@ impl CompositorHandler for App {
 		_surface: &wl_surface::WlSurface,
 		_output: &wl_output::WlOutput,
 	) {
-		// Not needed for this example.
 	}
 
 	fn surface_leave(
@@ -261,12 +266,10 @@ impl CompositorHandler for App {
 		_surface: &wl_surface::WlSurface,
 		_output: &wl_output::WlOutput,
 	) {
-		// Not needed for this example.
 	}
 }
 
-delegate_compositor!(App);
-impl OutputHandler for App {
+impl OutputHandler for Engine {
 	fn output_state(&mut self) -> &mut OutputState {
 		&mut self.output_state
 	}
@@ -295,9 +298,8 @@ impl OutputHandler for App {
 	) {
 	}
 }
-delegate_output!(App);
 
-impl LayerShellHandler for App {
+impl LayerShellHandler for Engine {
 	fn configure(
 		&mut self,
 		_conn: &Connection,
@@ -306,10 +308,10 @@ impl LayerShellHandler for App {
 		_configure: smithay_client_toolkit::shell::wlr_layer::LayerSurfaceConfigure,
 		_serial: u32,
 	) {
+		info!("Layer configure event: new_size={:?}", _configure.new_size);
 		self.ctx.resize(_configure.new_size);
 		self.configured = true;
-		self.draw();
-		// _layer.set_size(self.dimensions.0, self.dimensions.1);
+		self.current_source.render(&self.ctx);
 	}
 
 	fn closed(
@@ -321,16 +323,36 @@ impl LayerShellHandler for App {
 		warn!("Surface closed");
 	}
 }
-delegate_layer!(App);
 
-impl ProvidesRegistryState for App {
+impl ProvidesRegistryState for Engine {
 	fn registry(&mut self) -> &mut RegistryState {
 		&mut self.registry_state
 	}
 
-	registry_handlers![OutputState];
+	fn runtime_add_global(
+		&mut self,
+		_conn: &client::Connection,
+		_qh: &QueueHandle<Self>,
+		_name: u32,
+		_interface: &str,
+		_version: u32,
+	) {
+	}
+
+	fn runtime_remove_global(
+		&mut self,
+		_conn: &client::Connection,
+		_qh: &QueueHandle<Self>,
+		_name: u32,
+		_interface: &str,
+	) {
+	}
 }
-delegate_registry!(App);
+
+delegate_compositor!(Engine);
+delegate_layer!(Engine);
+delegate_output!(Engine);
+delegate_registry!(Engine);
 
 struct FrameTimer {
 	fps: f32,

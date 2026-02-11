@@ -1,27 +1,16 @@
-mod fade;
-mod texture;
-
-use std::{iter::once, path::Path};
+use std::iter::once;
 
 use image::DynamicImage;
-use log::*;
+use log::{debug, error};
 
-use crate::sources::INDICES;
-
-use super::{
+use crate::sources::{
 	create_index_buffer, create_pipeline, create_texture_binds, create_uniform_binds,
-	create_vertex_buffer, Animation, RenderState,
+	create_vertex_buffer, RendererState, Source, INDICES,
 };
 
-use crate::{
-	engine::{Context, Texture},
-	prelude::Result,
-};
+use crate::engine::{Context, Texture};
 
-pub use fade::Fade;
-
-pub struct Static {
-	state: RenderState,
+pub struct Still {
 	texture: Texture,
 	texture_bind_group: wgpu::BindGroup,
 
@@ -32,15 +21,13 @@ pub struct Static {
 	uniform_bind_group: wgpu::BindGroup,
 
 	render_pipeline: wgpu::RenderPipeline,
+
+	state: RendererState,
 }
 
-impl Static {
-	pub fn open(img: &Path, ctx: &Context) -> Result<Self> {
-		let img = image::open(img)?;
-		Ok(Self::from_img(&img, ctx))
-	}
-
-	pub fn from_img(img: &DynamicImage, ctx: &Context) -> Self {
+impl Still {
+	pub fn new(img: &DynamicImage, ctx: &Context) -> Self {
+		debug!("Creating Still source from image");
 		let texture = Texture::from_image(img, ctx);
 
 		let (texture_bind_group_layout, texture_bind_group) =
@@ -60,8 +47,9 @@ impl Static {
 			ctx.config(),
 		);
 
+		let state = RendererState::default();
+
 		Self {
-			state: RenderState::Loading,
 			texture,
 			texture_bind_group,
 			vertex_buffer,
@@ -69,26 +57,30 @@ impl Static {
 			uniform_buffer,
 			uniform_bind_group,
 			render_pipeline,
+			state,
 		}
 	}
-}
 
-impl Animation for Static {
-	fn state(&self) -> &RenderState {
-		&self.state
-	}
-
-	fn update_img(&mut self, img: &DynamicImage, ctx: &Context) {
-		self.state = RenderState::Loading;
+	pub fn update_texture(&mut self, img: &DynamicImage, ctx: &Context) {
+		debug!("Updating Still texture");
 		let texture = Texture::from_image(img, ctx);
 		self.texture = texture;
 		let (_, bindgroup) = create_texture_binds(&[&self.texture], ctx);
 		self.texture_bind_group = bindgroup;
 	}
-	fn render(&mut self, ctx: &Context) {
+}
+
+impl Source for Still {
+	fn render(&self, ctx: &Context) {
 		let queue = ctx.queue();
 		let device = ctx.device();
 		let surface = ctx.surface();
+
+		debug!(
+			"Still rendering, surface aspect: {:.2}, texture aspect: {:.2}",
+			ctx.surface_aspect_ratio(),
+			self.texture.aspect_ratio()
+		);
 
 		let output = surface.get_current_texture();
 		if let Err(e) = output {
@@ -115,12 +107,10 @@ impl Animation for Static {
 						load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
 						store: wgpu::StoreOp::Store,
 					},
-					depth_slice: None,
 				})],
 				depth_stencil_attachment: None,
 				timestamp_writes: None,
 				occlusion_query_set: None,
-				multiview_mask: None,
 			});
 
 			render_pass.set_pipeline(&self.render_pipeline);
@@ -134,6 +124,22 @@ impl Animation for Static {
 		queue.submit(once(encoder.finish()));
 		output.present();
 
-		self.state = RenderState::Complete;
+		debug!("Still render complete");
+	}
+
+	fn texture(&self) -> &Texture {
+		&self.texture
+	}
+
+	fn update_texture(&mut self, img: &DynamicImage, ctx: &Context) {
+		debug!("Updating Still texture via Source trait");
+		let texture = Texture::from_image(img, ctx);
+		self.texture = texture;
+		let (_, bindgroup) = create_texture_binds(&[&self.texture], ctx);
+		self.texture_bind_group = bindgroup;
+	}
+
+	fn state(&self) -> &RendererState {
+		&self.state
 	}
 }
