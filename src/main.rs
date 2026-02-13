@@ -3,11 +3,13 @@ use crate::prelude::*;
 use clap::Parser;
 
 mod cli;
+mod config;
 mod decode;
 mod engine;
 mod error;
 mod prelude;
 mod sources;
+mod transitions;
 mod utils;
 
 #[derive(Parser, Debug)]

@@ -1,15 +1,21 @@
 use std::iter::once;
+use std::time::Duration;
 
 use image::DynamicImage;
 use log::{debug, error};
 
+use crate::prelude::Result;
 use crate::sources::{
 	create_index_buffer, create_pipeline, create_texture_binds, create_uniform_binds,
-	create_vertex_buffer, RendererState, Source, INDICES,
+	create_vertex_buffer, RenderState, Source, INDICES,
+};
+use crate::transitions::{
+	CircleOrigin, CircleRevealTransition, FadeTransition, Transition, TransitionType,
 };
 
 use crate::engine::{Context, Texture};
 
+#[derive(Debug)]
 pub struct Still {
 	texture: Texture,
 	texture_bind_group: wgpu::BindGroup,
@@ -22,7 +28,7 @@ pub struct Still {
 
 	render_pipeline: wgpu::RenderPipeline,
 
-	state: RendererState,
+	state: RenderState,
 }
 
 impl Still {
@@ -47,7 +53,7 @@ impl Still {
 			ctx.config(),
 		);
 
-		let state = RendererState::default();
+		let state = RenderState::default();
 
 		Self {
 			texture,
@@ -61,17 +67,7 @@ impl Still {
 		}
 	}
 
-	pub fn update_texture(&mut self, img: &DynamicImage, ctx: &Context) {
-		debug!("Updating Still texture");
-		let texture = Texture::from_image(img, ctx);
-		self.texture = texture;
-		let (_, bindgroup) = create_texture_binds(&[&self.texture], ctx);
-		self.texture_bind_group = bindgroup;
-	}
-}
-
-impl Source for Still {
-	fn render(&self, ctx: &Context) {
+	fn render_normal(&self, ctx: &Context) {
 		let queue = ctx.queue();
 		let device = ctx.device();
 		let surface = ctx.surface();
@@ -82,12 +78,13 @@ impl Source for Still {
 			self.texture.aspect_ratio()
 		);
 
-		let output = surface.get_current_texture();
-		if let Err(e) = output {
-			error!("Could not get texture from surface: {e}");
-			return;
-		}
-		let output = output.unwrap();
+		let output = match surface.get_current_texture() {
+			Ok(output) => output,
+			Err(e) => {
+				error!("Could not get texture from surface: {e}");
+				return;
+			}
+		};
 		let view = output.texture.create_view(&Default::default());
 
 		queue.write_buffer(
@@ -126,20 +123,97 @@ impl Source for Still {
 
 		debug!("Still render complete");
 	}
+}
+
+impl Source for Still {
+	fn render(&mut self, ctx: &Context) {
+		match &self.state {
+			RenderState::Transitioning(transition) => {
+				transition.render(ctx, self);
+			}
+			_ => {
+				self.render_normal(ctx);
+			}
+		}
+	}
 
 	fn texture(&self) -> &Texture {
 		&self.texture
 	}
 
-	fn update_texture(&mut self, img: &DynamicImage, ctx: &Context) {
-		debug!("Updating Still texture via Source trait");
-		let texture = Texture::from_image(img, ctx);
-		self.texture = texture;
-		let (_, bindgroup) = create_texture_binds(&[&self.texture], ctx);
-		self.texture_bind_group = bindgroup;
+	fn state(&self) -> &RenderState {
+		&self.state
 	}
 
-	fn state(&self) -> &RendererState {
-		&self.state
+	fn load(&mut self, _ctx: &Context) -> Result<()> {
+		debug!("Loading Still source");
+		self.state = RenderState::Displaying;
+		Ok(())
+	}
+
+	fn start_transition(
+		&mut self,
+		previous: Option<Box<dyn Source>>,
+		duration: Duration,
+		ctx: &Context,
+		transition_type: TransitionType,
+	) {
+		debug!(
+			"Starting {:?} transition with duration {:?}",
+			transition_type, duration
+		);
+		let transition: Box<dyn Transition> = match transition_type {
+			TransitionType::Fade => Box::new(FadeTransition::new(previous, duration, ctx)),
+			TransitionType::CircleTopLeft => Box::new(CircleRevealTransition::new(
+				previous,
+				duration,
+				CircleOrigin::TopLeft,
+				ctx,
+			)),
+			TransitionType::CircleTopRight => Box::new(CircleRevealTransition::new(
+				previous,
+				duration,
+				CircleOrigin::TopRight,
+				ctx,
+			)),
+			TransitionType::CircleBottomLeft => Box::new(CircleRevealTransition::new(
+				previous,
+				duration,
+				CircleOrigin::BottomLeft,
+				ctx,
+			)),
+			TransitionType::CircleBottomRight => Box::new(CircleRevealTransition::new(
+				previous,
+				duration,
+				CircleOrigin::BottomRight,
+				ctx,
+			)),
+			TransitionType::CircleCenter => Box::new(CircleRevealTransition::new(
+				previous,
+				duration,
+				CircleOrigin::Center,
+				ctx,
+			)),
+			TransitionType::CircleRandom => Box::new(CircleRevealTransition::new(
+				previous,
+				duration,
+				CircleOrigin::Random,
+				ctx,
+			)),
+		};
+		self.state = RenderState::Transitioning(transition);
+	}
+
+	fn update(&mut self, dt: Duration) {
+		match &mut self.state {
+			RenderState::Transitioning(ref mut transition) => {
+				let complete = transition.update(dt);
+				if complete {
+					debug!("Transition complete, switching to Displaying");
+					self.state = RenderState::Displaying;
+				}
+			}
+			_ => {}
+		}
 	}
 }

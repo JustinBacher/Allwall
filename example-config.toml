@@ -1,0 +1,54 @@
+# Allwall Configuration File
+# Location: $XDG_CONFIG_HOME/allwall/config.toml
+# Example: ~/.config/allwall/config.toml
+
+# Path to image/video file or directory of images/videos to use as wallpaper
+# This can be overridden by the --path CLI argument
+path = "/path/to/wallpapers"
+
+[general]
+# Display mode: stretch, tile, center, or zoom
+# This can be overridden by the --mode CLI argument
+mode = "stretch"
+
+# Framerate (frames per second)
+# This can be overridden by the --fps CLI argument
+fps = 60
+
+[audio]
+# Whether to play sound when using a video as wallpaper
+# This can be overridden by the --play-audio CLI argument
+play_audio = true
+
+# Volume level as a percentage (0-100)
+volume = 100
+
+[rotation]
+# Interval between image rotations in seconds
+# This can be overridden by the --rotation-interval CLI argument
+interval = 10
+
+[transition]
+# Duration of transitions between images in seconds
+# This can be overridden by the --transition-duration CLI argument (-d)
+duration = 1
+
+# Transition type: fade, circle-top-left, circle-top-right,
+# circle-bottom-left, circle-bottom-right, circle-center, or circle-random
+# This can be overridden by the --transition-type CLI argument (-t)
+type = "fade"
+
+# Circle-specific transition settings
+[transition.circle]
+# Edge feathering for circle transitions
+# 0.0 = hard edge, higher values = softer edge
+# Recommended values: 0.0 - 0.1
+feather = 0.05
+
+# Future transition types can have their own sections
+# Example:
+# [transition.wipe]
+# direction = "left"
+#
+# [transition.zoom]
+# scale = 1.5

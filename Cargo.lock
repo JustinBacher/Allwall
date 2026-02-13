@@ -73,6 +73,7 @@ dependencies = [
  "smithay-client-toolkit",
  "thiserror 2.0.18",
  "tokio",
+ "toml 0.8.23",
  "wayland-backend 0.3.12",
  "wayland-client 0.30.2",
  "wayland-protocols 0.30.1",
@@ -3069,6 +3070,7 @@ dependencies = [
  "serde",
  "serde_spanned 0.6.9",
  "toml_datetime 0.6.11",
+ "toml_write",
  "winnow",
 ]
 
@@ -3092,6 +3094,12 @@ checksum = "a3198b4b0a8e11f09dd03e133c0280504d0801269e9afa46362ffde1cbeebf44"
 dependencies = [
  "winnow",
 ]
+
+[[package]]
+name = "toml_write"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
 
 [[package]]
 name = "tracing"

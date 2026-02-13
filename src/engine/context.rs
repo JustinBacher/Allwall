@@ -10,10 +10,10 @@ use smithay_client_toolkit::reexports::client;
 use smithay_client_toolkit::shell::{wlr_layer::LayerSurface, WaylandSurface};
 
 pub struct Context {
-	surface: wgpu::Surface<'static>,
-	device: wgpu::Device,
-	queue: wgpu::Queue,
-	config: wgpu::SurfaceConfiguration,
+	pub surface: wgpu::Surface<'static>,
+	pub device: wgpu::Device,
+	pub queue: wgpu::Queue,
+	pub config: wgpu::SurfaceConfiguration,
 }
 
 impl Context {
@@ -102,21 +102,5 @@ impl Context {
 
 	pub fn surface_aspect_ratio(&self) -> f32 {
 		self.config.width as f32 / self.config.height as f32
-	}
-
-	pub fn surface(&self) -> &wgpu::Surface<'static> {
-		&self.surface
-	}
-
-	pub fn device(&self) -> &wgpu::Device {
-		&self.device
-	}
-
-	pub fn queue(&self) -> &wgpu::Queue {
-		&self.queue
-	}
-
-	pub fn config(&self) -> &wgpu::SurfaceConfiguration {
-		&self.config
 	}
 }

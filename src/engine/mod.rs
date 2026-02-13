@@ -34,7 +34,14 @@ use smithay_client_toolkit::{
 
 use calloop::timer::{TimeoutAction, Timer};
 
-use crate::sources::Source;
+use crate::sources::{smoke::SmokeSource, Source};
+use crate::transitions::TransitionType;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SourceType {
+	Image,
+	Smoke,
+}
 
 const FPS: f32 = 60.0;
 const MIN_FPS: f32 = 5.0;
@@ -49,21 +56,27 @@ pub struct Engine {
 	layer_shell: LayerShell,
 
 	current_source: Box<dyn Source>,
-	img_dir: PathBuf,
+	img_dir: Option<PathBuf>,
 	rotation_interval: Duration,
+	transition_duration: Duration,
+	transition_type: TransitionType,
 	configured: bool,
 	frame_timer: FrameTimer,
 
 	ctx: Context,
 	conn: Connection,
 	layer: LayerSurface,
+	source_type: SourceType,
 }
 
 impl Engine {
 	pub fn run(
-		img_dir: PathBuf,
+		img_dir: Option<PathBuf>,
+		source_type: SourceType,
 		transition_duration: Duration,
 		rotation_interval: Duration,
+		transition_type: TransitionType,
+		feather: Option<f32>,
 	) -> Result<()> {
 		let total_start = Instant::now();
 		info!("Starting Allwall...");
@@ -114,14 +127,32 @@ impl Engine {
 		info!("WGPU context created in {:?}", start.elapsed());
 
 		let start = Instant::now();
-		let initial_img = Self::load_random_img(&img_dir)
-			.ok_or_else(|| Error::NoImages(format!("No images found in {}", img_dir.display())))?;
-		info!("Initial image loaded in {:?}", start.elapsed());
+		let mut current_source: Box<dyn Source> = match source_type {
+			SourceType::Image => {
+				let img_dir_ref = img_dir.as_ref().ok_or_else(|| {
+					Error::Generic("Image mode requires img_dir to be set".to_string())
+				})?;
+				let initial_img = Self::load_random_img(img_dir_ref).ok_or_else(|| {
+					Error::NoImages(format!("No images found in {}", img_dir_ref.display()))
+				})?;
+				info!("Initial image loaded in {:?}", start.elapsed());
 
-		let start = Instant::now();
-		use crate::sources::still::Still;
-		let current_source = Box::new(Still::new(&initial_img, &ctx));
-		info!("Still source initialized in {:?}", start.elapsed());
+				use crate::sources::still::Still;
+				let mut source = Box::new(Still::new(&initial_img, &ctx)) as Box<dyn Source>;
+				source.load(&ctx)?;
+				source.start_transition(None, transition_duration, &ctx, transition_type);
+				info!("Still source initialized in {:?}", start.elapsed());
+				source
+			}
+			SourceType::Smoke => {
+				info!("Creating SmokeSource in {:?}", start.elapsed());
+				let mut source = Box::new(SmokeSource::new(&ctx)) as Box<dyn Source>;
+				source.load(&ctx)?;
+				source.start_transition(None, transition_duration, &ctx, transition_type);
+				info!("SmokeSource initialized in {:?}", start.elapsed());
+				source
+			}
+		};
 
 		let engine_init_start = Instant::now();
 		let mut event_loop: EventLoop<Engine> = EventLoop::try_new().unwrap();
@@ -138,8 +169,11 @@ impl Engine {
 
 			img_dir,
 			rotation_interval,
+			transition_duration,
+			transition_type,
 			configured: false,
 			frame_timer: FrameTimer::new(FPS),
+			source_type,
 		};
 
 		info!("Engine initialized in {:?}", engine_init_start.elapsed());
@@ -148,26 +182,43 @@ impl Engine {
 		let _ = event_loop_handler.insert_source(
 			Timer::from_deadline(engine.frame_timer.next_frame()),
 			|_, _, engine| {
+				let dt = engine.frame_timer.frametime();
+				engine.current_source.update(dt);
 				engine.current_source.render(&engine.ctx);
 				TimeoutAction::ToInstant(engine.frame_timer.next_frame())
 			},
 		);
 
-		let _ = event_loop_handler.insert_source(
-			Timer::from_duration(engine.rotation_interval),
-			|_, _, engine| {
-				match engine.load_img_result() {
-					Ok(img) => {
-						info!("Loading new image");
-						engine.current_source.update_texture(&img, &engine.ctx);
+		if source_type == SourceType::Image {
+			let _ = event_loop_handler.insert_source(
+				Timer::from_duration(engine.rotation_interval),
+				|_, _, engine| {
+					match engine.load_img_result() {
+						Ok(img) => {
+							info!("Starting transition to new image");
+							use crate::sources::still::Still;
+							let mut new_source = Box::new(Still::new(&img, &engine.ctx));
+							if let Err(e) = new_source.load(&engine.ctx) {
+								error!("Failed to load new source: {e}");
+								return TimeoutAction::ToDuration(engine.rotation_interval);
+							}
+							let old_source =
+								std::mem::replace(&mut engine.current_source, new_source);
+							engine.current_source.start_transition(
+								Some(old_source),
+								engine.transition_duration,
+								&engine.ctx,
+								engine.transition_type,
+							);
+						}
+						Err(e) => {
+							error!("Could not load new img: {e}");
+						}
 					}
-					Err(e) => {
-						error!("Could not load new img: {e}");
-					}
-				}
-				TimeoutAction::ToDuration(engine.rotation_interval)
-			},
-		);
+					TimeoutAction::ToDuration(engine.rotation_interval)
+				},
+			);
+		}
 
 		ctrlc::set_handler({
 			let loop_signal = event_loop.get_signal();
@@ -213,10 +264,14 @@ impl Engine {
 	}
 
 	fn load_img_result(&self) -> Result<DynamicImage> {
-		Self::load_random_img(&self.img_dir).ok_or_else(|| {
+		let img_dir = self
+			.img_dir
+			.as_ref()
+			.ok_or_else(|| Error::Generic("No image directory set".to_string()))?;
+		Self::load_random_img(img_dir).ok_or_else(|| {
 			Error::NoImages(format!(
 				"Unable to load any image from {}",
-				self.img_dir.display()
+				img_dir.display()
 			))
 		})
 	}

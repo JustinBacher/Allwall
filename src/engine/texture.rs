@@ -13,6 +13,15 @@ pub struct Texture {
 	sampler: wgpu::Sampler,
 }
 
+impl std::fmt::Debug for Texture {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("Texture")
+			.field("size", &self.size)
+			.field("aspect_ratio", &self.aspect_ratio())
+			.finish_non_exhaustive()
+	}
+}
+
 impl Texture {
 	pub fn open(path: &Path, ctx: &Context) -> Result<Self> {
 		let img = image::open(path)?;
@@ -58,6 +67,53 @@ impl Texture {
 			},
 			size,
 		);
+
+		let view = texture.create_view(&Default::default());
+		let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+			address_mode_u: wgpu::AddressMode::ClampToEdge,
+			address_mode_v: wgpu::AddressMode::ClampToEdge,
+			address_mode_w: wgpu::AddressMode::ClampToEdge,
+			mag_filter: wgpu::FilterMode::Linear,
+			min_filter: wgpu::FilterMode::Linear,
+			mipmap_filter: wgpu::FilterMode::Nearest,
+			..Default::default()
+		});
+
+		Self {
+			texture,
+			size,
+			view,
+			sampler,
+		}
+	}
+
+	pub fn empty(ctx: &Context, width: u32, height: u32) -> Self {
+		Self::empty_format(ctx, width, height, wgpu::TextureFormat::Rgba8UnormSrgb)
+	}
+
+	pub fn empty_format(
+		ctx: &Context,
+		width: u32,
+		height: u32,
+		format: wgpu::TextureFormat,
+	) -> Self {
+		let device = ctx.device();
+		let size = wgpu::Extent3d {
+			width,
+			height,
+			depth_or_array_layers: 1,
+		};
+
+		let texture = device.create_texture(&wgpu::TextureDescriptor {
+			label: Some("empty_texture"),
+			size,
+			mip_level_count: 1,
+			sample_count: 1,
+			dimension: wgpu::TextureDimension::D2,
+			format,
+			usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+			view_formats: &[],
+		});
 
 		let view = texture.create_view(&Default::default());
 		let sampler = device.create_sampler(&wgpu::SamplerDescriptor {

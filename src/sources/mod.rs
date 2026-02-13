@@ -1,30 +1,45 @@
 mod media_detector;
+pub mod smoke;
 pub mod still;
 
 use crate::engine::{Context, Texture};
-pub use media_detector::{MediaDetector, MediaType};
+use crate::prelude::Result;
+use crate::transitions::{Transition, TransitionType};
 
-use image::DynamicImage;
 use std::time::Duration;
 
 use wgpu::util::DeviceExt;
 
-pub trait Source {
-	fn render(&self, ctx: &Context);
+pub trait Source: std::fmt::Debug {
+	fn render(&mut self, ctx: &Context);
 	fn texture(&self) -> &Texture;
-	fn update_texture(&mut self, img: &DynamicImage, ctx: &Context);
-	fn state(&self) -> &RendererState;
+	fn state(&self) -> &RenderState;
+
+	fn load(&mut self, _ctx: &Context) -> Result<()> {
+		Ok(())
+	}
+
+	fn start_transition(
+		&mut self,
+		previous: Option<Box<dyn Source>>,
+		duration: Duration,
+		ctx: &Context,
+		transition_type: TransitionType,
+	);
+	fn update(&mut self, dt: Duration);
 }
 
-#[derive(Debug, Default)]
-pub enum RendererState {
-	#[default]
+#[derive(Debug)]
+pub enum RenderState {
 	Loading,
 	Displaying,
-	Transitioning {
-		elapsed: Duration,
-		total_duration: Duration,
-	},
+	Transitioning(Box<dyn Transition>),
+}
+
+impl Default for RenderState {
+	fn default() -> Self {
+		Self::Loading
+	}
 }
 
 #[repr(C)]
