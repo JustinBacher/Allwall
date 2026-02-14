@@ -1,0 +1,14 @@
+[package]
+name = "generate"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+allwall = { path = "../allwall", features = ["generate"] }
+clap = { workspace = true }
+env_logger = { workspace = true }
+log = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

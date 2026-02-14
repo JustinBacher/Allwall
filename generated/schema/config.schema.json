@@ -1,0 +1,268 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Config",
+  "description": "Root configuration for allwall\n\nThis is the main configuration structure that defines all settings\nfor the wallpaper daemon. Configuration is loaded from\n`$XDG_CONFIG_HOME/allwall/config.toml`.\n\n# Example\n\n```toml\n[general]\nfps = 30\ngpu = \"auto\"\n\n[transition]\ntype = \"fade\"\nduration = 1\ninterval = 10\n\n[[scene]]\npath = \"wallpapers/nature\"\nlayout = \"clone\"\nfit = \"cover\"\nmonitors = \"*\"\n```",
+  "type": "object",
+  "properties": {
+    "general": {
+      "description": "General engine settings",
+      "$ref": "#/$defs/GeneralConfig"
+    },
+    "scene": {
+      "description": "Scene configurations for monitor assignments\n\nEach scene defines a wallpaper configuration for one or more monitors.\nIf no scenes are defined, a default scene using all monitors is created.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SceneConfig"
+      }
+    },
+    "transition": {
+      "description": "Global transition configuration",
+      "$ref": "#/$defs/TransitionConfig"
+    }
+  },
+  "$defs": {
+    "CircleOptions": {
+      "description": "Options for circle reveal transition\n\nConfigures the appearance of the circle reveal animation.",
+      "type": "object",
+      "properties": {
+        "feather": {
+          "description": "Edge softness (feathering) for the circle reveal\n\nControls how soft or hard the edge of the circle appears.\n- 0.0: Hard edge (no feathering)\n- 0.05: Slight softness (default)\n- 0.1+: More pronounced soft edge",
+          "type": "number",
+          "format": "float",
+          "default": 0.05000000074505806
+        },
+        "origin": {
+          "description": "Starting point for the circle reveal animation",
+          "$ref": "#/$defs/CircleOrigin"
+        }
+      }
+    },
+    "CircleOrigin": {
+      "description": "Origin point for circle reveal transition\n\nDefines where the circle animation starts when revealing the new wallpaper.",
+      "oneOf": [
+        {
+          "description": "Start from top-left corner",
+          "type": "string",
+          "const": "top-left"
+        },
+        {
+          "description": "Start from top-right corner",
+          "type": "string",
+          "const": "top-right"
+        },
+        {
+          "description": "Start from bottom-left corner",
+          "type": "string",
+          "const": "bottom-left"
+        },
+        {
+          "description": "Start from bottom-right corner",
+          "type": "string",
+          "const": "bottom-right"
+        },
+        {
+          "description": "Start from center",
+          "type": "string",
+          "const": "center"
+        },
+        {
+          "description": "Start from a random position each time",
+          "type": "string",
+          "const": "random"
+        }
+      ]
+    },
+    "Fit": {
+      "description": "How wallpaper content fits within monitor bounds\n\nControls the scaling and positioning behavior when the wallpaper\naspect ratio doesn't match the monitor's aspect ratio.",
+      "oneOf": [
+        {
+          "description": "Stretch to fill entire area\n\nIgnores aspect ratio, may cause distortion.",
+          "type": "string",
+          "const": "stretch"
+        },
+        {
+          "description": "Center at original size\n\nNo scaling, may not fill the screen.",
+          "type": "string",
+          "const": "center"
+        },
+        {
+          "description": "Fill entire area, may crop edges\n\nMaintains aspect ratio while filling the screen.\nThis is the recommended option for most wallpapers.",
+          "type": "string",
+          "const": "cover"
+        },
+        {
+          "description": "Fit entirely within bounds\n\nMaintains aspect ratio, may show letterboxing.",
+          "type": "string",
+          "const": "contain"
+        },
+        {
+          "description": "Repeat pattern to fill screen\n\nBest for small repeating patterns or textures.",
+          "type": "string",
+          "const": "tile"
+        }
+      ]
+    },
+    "GeneralConfig": {
+      "description": "General engine configuration options",
+      "type": "object",
+      "properties": {
+        "fps": {
+          "description": "Target framerate for wallpaper rendering\n\nHigher values provide smoother animations but increase GPU usage.\nRecommended values: 30 (balanced), 60 (smooth), 144+ (high refresh rate monitors).",
+          "type": "integer",
+          "format": "uint32",
+          "default": 30,
+          "minimum": 0
+        },
+        "gpu": {
+          "description": "GPU selection strategy",
+          "$ref": "#/$defs/GpuSelection"
+        }
+      }
+    },
+    "GpuSelection": {
+      "description": "GPU selection strategy. Use 'auto', 'integrated', 'dedicated', or 'pci:VENDOR:DEVICE' (hex IDs, e.g., 'pci:10de:1b80')",
+      "type": "string",
+      "pattern": "auto|integrated|dedicated|pci:[0-9a-fA-F]{4}:[0-9a-fA-F]{4}"
+    },
+    "Layout": {
+      "description": "Monitor layout strategy for multi-monitor setups\n\nDetermines how wallpaper content is distributed across monitors\nin a scene. This affects rendering efficiency and visual consistency.",
+      "oneOf": [
+        {
+          "description": "Mirror content to all monitors (most efficient)\n\nRenders a single texture and displays it on all monitors.\nBest for power efficiency and when you want identical content everywhere.",
+          "type": "string",
+          "const": "clone"
+        },
+        {
+          "description": "Each monitor has its own wallpaper instance\n\nEach monitor gets its own random selection from the source path.\nTransitions occur independently per monitor.",
+          "type": "string",
+          "const": "independent"
+        },
+        {
+          "description": "Stretch single wallpaper across all monitors\n\nCreates a virtual canvas spanning all monitors.\nBest for panoramic wallpapers that span multiple displays.",
+          "type": "string",
+          "const": "span"
+        }
+      ]
+    },
+    "MonitorsSpec": {
+      "description": "Monitor specification. Use '*' or 'any' for all monitors, a single name like 'DP-1', or an array like ['DP-1', 'HDMI-A-1'].",
+      "oneOf": [
+        {
+          "description": "Single monitor name, or '*'/'any' for all monitors",
+          "type": "string"
+        },
+        {
+          "description": "Array of monitor names. If any element is '*' or 'any', resolves to all monitors.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "SceneConfig": {
+      "description": "Scene configuration for monitor assignment\n\nA scene defines a wallpaper configuration that applies to one or more\nmonitors. Multiple scenes can be defined to have different wallpapers\non different monitor groups.\n\n# Example\n\n```toml\n[[scene]]\npath = \"wallpapers/panorama\"\nlayout = \"span\"\nfit = \"cover\"\nmonitors = [\"DP-1\", \"DP-2\"]\n\n[[scene]]\npath = \"wallpapers/minimal\"\nlayout = \"clone\"\nfit = \"center\"\nmonitors = [\"HDMI-A-1\"]\n```",
+      "type": "object",
+      "properties": {
+        "fit": {
+          "description": "How wallpaper fits within monitor bounds",
+          "$ref": "#/$defs/Fit"
+        },
+        "layout": {
+          "description": "Monitor layout strategy",
+          "$ref": "#/$defs/Layout"
+        },
+        "monitors": {
+          "description": "Which monitors this scene applies to\n\nAccepts:\n- `\"*\"` or `\"any\"`: All monitors\n- `\"DP-1\"`: Single monitor by name\n- `[\"DP-1\", \"HDMI-A-1\"]`: Multiple specific monitors",
+          "$ref": "#/$defs/MonitorsSpec"
+        },
+        "path": {
+          "description": "Path to wallpaper directory or file\n\nFor media sources, this should point to a directory containing\nimages or videos. Supports common image formats (PNG, JPG, WebP)\nand video formats (MP4, WebM, GIF).\n\nRelative paths are resolved from the config file location.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "transition": {
+          "description": "Scene-specific transition settings\n\nWhen specified, these override the global transition configuration\nfor this scene only.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TransitionConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "TransitionConfig": {
+      "description": "Transition configuration for wallpaper changes\n\nControls how wallpapers transition between each other, including\nthe animation type, timing, and type-specific options.\n\n# Example\n\n```toml\n[transition]\ntype = \"circle-center\"\nduration = 2\ninterval = 30\n\n[transition.circle]\nfeather = 0.1\norigin = \"center\"\n```",
+      "type": "object",
+      "properties": {
+        "circle": {
+          "description": "Options specific to circle reveal transitions\n\nOnly used when `type` is set to a circle variant.",
+          "$ref": "#/$defs/CircleOptions"
+        },
+        "duration": {
+          "description": "Duration of the transition animation in seconds\n\nHow long the transition effect takes to complete.\nRecommended: 0.5-2 seconds for smooth results.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 1,
+          "minimum": 0
+        },
+        "interval": {
+          "description": "Time between automatic wallpaper rotations in seconds\n\nHow long to display each wallpaper before transitioning to the next.\nSet to 0 to disable automatic rotation.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 10,
+          "minimum": 0
+        },
+        "type": {
+          "description": "Transition animation type\n\nDetermines the visual effect used when switching between wallpapers.",
+          "$ref": "#/$defs/TransitionType"
+        }
+      }
+    },
+    "TransitionType": {
+      "description": "Transition animation type\n\nDefines the visual effect used when transitioning between wallpapers.",
+      "oneOf": [
+        {
+          "description": "Simple crossfade between wallpapers",
+          "type": "string",
+          "const": "fade"
+        },
+        {
+          "description": "Circle reveal from top-left corner",
+          "type": "string",
+          "const": "circle-top-left"
+        },
+        {
+          "description": "Circle reveal from top-right corner",
+          "type": "string",
+          "const": "circle-top-right"
+        },
+        {
+          "description": "Circle reveal from bottom-left corner",
+          "type": "string",
+          "const": "circle-bottom-left"
+        },
+        {
+          "description": "Circle reveal from bottom-right corner",
+          "type": "string",
+          "const": "circle-bottom-right"
+        },
+        {
+          "description": "Circle reveal from center",
+          "type": "string",
+          "const": "circle-center"
+        },
+        {
+          "description": "Circle reveal from random position",
+          "type": "string",
+          "const": "circle-random"
+        }
+      ]
+    }
+  }
+}

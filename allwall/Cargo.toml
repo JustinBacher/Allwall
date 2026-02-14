@@ -1,0 +1,64 @@
+[package]
+name = "allwall"
+version = "0.1.0"
+edition = "2021"
+default-run = "allwall"
+
+[lints.rust]
+async_fn_in_trait = "allow"
+
+[features]
+default = []
+generate = ["dep:schemars", "dep:serde-nixos"]
+
+[lib]
+name = "allwall"
+path = "src/lib.rs"
+
+[[bin]]
+name = "allwall"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+clap_complete = { workspace = true }
+env_logger = { workspace = true }
+log = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+toml = { workspace = true }
+
+# Graphics/ Wayland
+wgpu = { workspace = true }
+bytemuck = { workspace = true }
+smithay-client-toolkit = { workspace = true }
+wayland-protocols = { workspace = true }
+wayland-client = { workspace = true }
+wayland-backend = { workspace = true }
+raw-window-handle = { workspace = true }
+
+# Media
+gstreamer = { workspace = true }
+gstreamer-app = { workspace = true }
+gstreamer-video = { workspace = true }
+image = { workspace = true }
+
+# Utilities
+calloop = { workspace = true }
+color-eyre = { workspace = true }
+ctrlc = { workspace = true }
+derive_more = { workspace = true }
+eyre = { workspace = true }
+keyframe = { workspace = true }
+once_cell = { workspace = true }
+pollster = { workspace = true }
+rand = { workspace = true }
+xdg = { workspace = true }
+
+# Metadata generation
+schemars = { workspace = true, optional = true }
+serde-nixos = { workspace = true, optional = true }
+
+[dev-dependencies]
+anyhow = "1"

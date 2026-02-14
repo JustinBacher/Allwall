@@ -1,39 +1,46 @@
-[package]
-name = "allwall"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+resolver = "2"
+members = ["allwall", "generate"]
 
-[dependencies]
-gstreamer = "0.22"
-gstreamer-app = "0.22"
-gstreamer-video = "0.22"
+[workspace.dependencies]
+# Core dependencies
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+log = "0.4"
+env_logger = "0.11.8"
+thiserror = "2"
+clap = { version = "4.5", features = ["derive"] }
+clap_complete = "4.5"
+tokio = { version = "1", features = ["full"] }
+
+# Graphics/ Wayland
 wgpu = "0.20.1"
 bytemuck = { version = "1.15", features = ["derive"] }
-thiserror = "2"
-env_logger = "0.11.8"
-clap = { version = "4.5.57", features = ["derive"] }
-tokio = { version = "1", features = ["full"] }
-log = "0.4"
-color-eyre = "0.6.2"
-eyre = "0.6.8"
-xdg = "3.0"
 smithay-client-toolkit = "0.19.0"
 wayland-protocols = { version = "0.30.0", features = ["client", "staging"] }
 wayland-client = "0.30.0"
-raw-window-handle = "0.6"
 wayland-backend = { version = "0.3.4", features = ["client_system"] }
+raw-window-handle = "0.6"
+
+# Media
+gstreamer = "0.22"
+gstreamer-app = "0.22"
+gstreamer-video = "0.22"
 image = "0.25"
-once_cell = "1.17.1"
+
+# Utilities
 rand = "0.9"
 pollster = "0.4.0"
 calloop = "0.13"
 ctrlc = "3.5.0"
-clap_config = "0.1.1"
-serde = { version = "1.0", features = ["derive"] }
-config = "0.15"
-toml = "0.8"
 derive_more = { version = "2.0", features = ["display"] }
 keyframe = "1"
+once_cell = "1.17.1"
+xdg = "3.0"
+color-eyre = "0.6.2"
+eyre = "0.6.8"
 
-[dev-dependencies]
-anyhow = "1"
+# Schema generation (only needed for codegen)
+schemars = "1.2"
+serde-nixos = "0.1"
+serde_json = "1.0"
