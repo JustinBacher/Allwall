@@ -13,7 +13,7 @@ pub use source::{EmissionMode, SmokeConfig};
 use crate::{
     engine::{Fit, Layout, MonitorsSpec, SceneConfig},
     prelude::*,
-    transitions::config::TransitionConfig,
+    transitions::{TransitionType, config::TransitionConfig},
 };
 
 /// Root configuration for allwall
@@ -115,6 +115,7 @@ impl AppConfig {
         path: Option<PathBuf>,
         transition_duration: Option<u64>,
         transition_interval: Option<u64>,
+        transition_type: Option<TransitionType>,
         fps: Option<u32>,
     ) -> Self {
         if let Some(p) = path {
@@ -142,6 +143,13 @@ impl AppConfig {
             self.transition.interval = i;
             for scene in &mut self.scenes {
                 scene.transition.interval = i;
+            }
+        }
+
+        if let Some(t) = transition_type {
+            self.transition.r#type = t;
+            for scene in &mut self.scenes {
+                scene.transition.r#type = t;
             }
         }
 
@@ -348,7 +356,7 @@ mod tests {
     fn test_app_config_merge_cli_path() {
         let config = Config::default();
         let app_config = AppConfig::from_config(config).unwrap();
-        let merged = app_config.merge_cli(Some(PathBuf::from("/new/path")), None, None, None);
+        let merged = app_config.merge_cli(Some(PathBuf::from("/new/path")), None, None, None, None);
 
         assert_eq!(merged.scenes[0].path, Some(PathBuf::from("/new/path")));
     }
@@ -357,7 +365,7 @@ mod tests {
     fn test_app_config_merge_cli_fps() {
         let config = Config::default();
         let app_config = AppConfig::from_config(config).unwrap();
-        let merged = app_config.merge_cli(None, None, None, Some(60));
+        let merged = app_config.merge_cli(None, None, None, None, Some(60));
 
         assert_eq!(merged.general.fps, 60);
     }
@@ -366,7 +374,7 @@ mod tests {
     fn test_app_config_merge_cli_duration() {
         let config = Config::default();
         let app_config = AppConfig::from_config(config).unwrap();
-        let merged = app_config.merge_cli(None, Some(5), None, None);
+        let merged = app_config.merge_cli(None, Some(5), None, None, None);
 
         assert_eq!(merged.transition.duration, 5);
     }
@@ -375,7 +383,7 @@ mod tests {
     fn test_app_config_merge_cli_interval() {
         let config = Config::default();
         let app_config = AppConfig::from_config(config).unwrap();
-        let merged = app_config.merge_cli(None, None, Some(30), None);
+        let merged = app_config.merge_cli(None, None, Some(30), None, None);
 
         assert_eq!(merged.transition.interval, 30);
     }

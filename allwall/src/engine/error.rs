@@ -36,6 +36,9 @@ pub enum EngineError {
 
     #[error("Render error: {0}")]
     Render(String),
+
+    #[error("No scenes configured")]
+    NoScenes,
 }
 
 #[derive(thiserror::Error, Debug)]

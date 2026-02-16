@@ -49,18 +49,13 @@ impl Engine {
             return Response::Error("Next command only works with media source".to_string());
         }
 
-        match self.current_source.next(&self.ctx) {
-            Ok(new_source) => {
-                let old_source = std::mem::replace(&mut self.current_source, new_source);
-                self.current_source.start_transition(
-                    Some(old_source),
-                    self.transition_duration,
-                    &self.ctx,
-                    self.transition_type,
-                );
-                Response::Ok
-            },
-            Err(e) => Response::Error(f!("Failed to load next image: {e}")),
+        if let Some(scene) = self.scenes.first_mut() {
+            match scene.advance_source() {
+                Ok(()) => Response::Ok,
+                Err(e) => Response::Error(f!("Failed to load next image: {e}")),
+            }
+        } else {
+            Response::Error("No scenes available".to_string())
         }
     }
 
@@ -69,18 +64,13 @@ impl Engine {
             return Response::Error("Prev command only works with media source".to_string());
         }
 
-        match self.current_source.prev(&self.ctx) {
-            Ok(new_source) => {
-                let old_source = std::mem::replace(&mut self.current_source, new_source);
-                self.current_source.start_transition(
-                    Some(old_source),
-                    self.transition_duration,
-                    &self.ctx,
-                    self.transition_type,
-                );
-                Response::Ok
-            },
-            Err(e) => Response::Error(f!("Failed to load previous image: {e}")),
+        if let Some(scene) = self.scenes.first_mut() {
+            match scene.advance_source() {
+                Ok(()) => Response::Ok,
+                Err(e) => Response::Error(f!("Failed to load previous image: {e}")),
+            }
+        } else {
+            Response::Error("No scenes available".to_string())
         }
     }
 

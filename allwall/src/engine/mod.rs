@@ -4,62 +4,44 @@ pub mod graphics;
 pub mod scene;
 pub mod wayland;
 
-use std::{
-    path::Path,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use calloop::{
     Interest, Mode, PostAction,
     generic::Generic,
     timer::{TimeoutAction, Timer},
 };
-use client::{Connection, globals::registry_queue_init};
-pub use graphics::{Context, Texture};
-use image::DynamicImage;
-use rand::seq::SliceRandom;
-pub use scene::{Fit, Layout, MonitorHandle, MonitorsSpec, SceneConfig};
+pub use graphics::{Context, GpuContext, RenderSurface, Texture};
+use scene::Scene;
 use smithay_client_toolkit::{
-    compositor::{CompositorState, Region},
+    compositor::CompositorState,
     output::OutputState,
-    reexports::client,
+    reexports::client::{self, Connection, globals::registry_queue_init},
     registry::RegistryState,
-    shell::{
-        WaylandSurface,
-        wlr_layer::{Anchor, Layer, LayerShell},
-    },
+    shell::wlr_layer::LayerShell,
 };
 
 use crate::{
     cli::ipc::protocol::socket_path,
     config::AppConfig,
     engine::error::EngineError,
-    prelude::{Result, error, info, warn},
-    sources::{
-        BasicSource, InteractionState, Source, SourceKind, SourceType, grass::GrassSource, media::MediaSource,
-        smoke::SmokeSource,
-    },
-    transitions::TransitionType,
+    prelude::{Result, error, info},
+    sources::{InteractionState, SourceKind},
 };
+pub use scene::{Fit, Layout, MonitorsSpec, SceneConfig};
 
 pub struct Engine {
     pub registry_state: RegistryState,
     pub output_state: OutputState,
     pub compositor_state: CompositorState,
     pub layer_shell: LayerShell,
-
-    pub current_source: SourceType,
-    pub rotation_interval: Duration,
-    pub transition_duration: Duration,
-    pub transition_type: TransitionType,
-    pub fps: f32,
-
-    pub ctx: Context,
     pub conn: Connection,
-    pub layer: smithay_client_toolkit::shell::wlr_layer::LayerSurface,
+    pub gpu: std::sync::Arc<GpuContext>,
+    pub scenes: Vec<Scene>,
+    pub fps: f32,
     pub source_kind: SourceKind,
-
     pub interaction_state: InteractionState,
+    pub qh: client::QueueHandle<Engine>,
 }
 
 impl Engine {
@@ -67,19 +49,8 @@ impl Engine {
         let total_start = Instant::now();
         info!("Starting Allwall...");
 
-        let transition_config = if config.scenes.is_empty() {
-            config.transition.clone()
-        } else {
-            config.scenes[0].transition.clone()
-        };
-
-        let img_dir = if !config.scenes.is_empty() {
-            config.scenes[0].path.clone()
-        } else {
-            None
-        };
-
         let fps = config.general.fps;
+        let smoke_config = config.smoke.clone();
 
         let start = Instant::now();
         info!("Connecting to Wayland...");
@@ -94,81 +65,38 @@ impl Engine {
         let compositor_state = CompositorState::bind(&globals, &qh).map_err(|_| EngineError::NoCompositor)?;
         let output_state = OutputState::new(&globals, &qh);
         let layer_shell = LayerShell::bind(&globals, &qh).map_err(|_| EngineError::NoLayerShell)?;
-        let surface = compositor_state.create_surface(&qh);
         info!("Wayland protocols bound in {:?}", start.elapsed());
 
         let start = Instant::now();
-        let layer = layer_shell.create_layer_surface(&qh, surface, Layer::Background, Some("wallpaper"), None);
-        layer.set_anchor(Anchor::all());
-        layer.set_size(0, 0);
-        layer.set_exclusive_zone(-1);
-
-        match Region::new(&compositor_state) {
-            Ok(region) => {
-                layer.set_input_region(Some(region.wl_region()));
-                region.wl_region().destroy();
-            },
-            Err(e) => {
-                warn!("Failed to set input region, background may not have cursor: {e}");
-            },
-        }
-
-        layer.commit();
-        info!("Layer surface created in {:?}", start.elapsed());
-
-        let start = Instant::now();
-        let ctx = pollster::block_on(Context::new(&conn, &layer, (256, 256)))?;
+        let gpu = pollster::block_on(GpuContext::new())?;
         info!("WGPU context created in {:?}", start.elapsed());
 
-        let transition_duration = transition_config.duration();
-        let rotation_interval = transition_config.interval();
-        let transition_type = transition_config.r#type;
-        let smoke_config = config.smoke.clone();
-
         let start = Instant::now();
-        let mut current_source: SourceType = match source_kind {
-            SourceKind::Media => {
-                let img_dir_ref = img_dir.as_ref().ok_or(EngineError::MediaPathRequired)?;
-                let mut source = MediaSource::from_directory(img_dir_ref, &ctx)?;
-                source.load(&ctx)?;
-                info!("Media source initialized in {:?}", start.elapsed());
-                SourceType::Media(Box::new(source))
-            },
-            SourceKind::Smoke => {
-                info!("Creating SmokeSource in {:?}", start.elapsed());
-                let mut source = SmokeSource::new(&ctx, smoke_config);
-                source.load(&ctx)?;
-                SourceType::Smoke(Box::new(source))
-            },
-            SourceKind::Grass => {
-                info!("Creating GrassSource in {:?}", start.elapsed());
-                let mut source = GrassSource::new(&ctx);
-                source.load(&ctx)?;
-                SourceType::Grass(Box::new(source))
-            },
-        };
-        current_source.start_transition(None, transition_duration, &ctx, transition_type);
+        let gpu = std::sync::Arc::new(gpu);
+        let scenes = create_scenes(&config, source_kind, smoke_config);
+        info!("Scenes created in {:?}", start.elapsed());
+
+        if scenes.is_empty() {
+            return Err(EngineError::NoScenes.into());
+        }
 
         let engine_init_start = Instant::now();
         let mut event_loop: calloop::EventLoop<Engine> =
             calloop::EventLoop::try_new().map_err(|e| EngineError::EventLoopCreate(e.to_string()))?;
         let event_loop_handler = event_loop.handle();
+
         let mut engine = Engine {
             conn,
             registry_state,
             output_state,
             compositor_state,
             layer_shell,
-            current_source,
-            ctx,
-            layer,
-
-            rotation_interval,
-            transition_duration,
-            transition_type,
+            gpu,
+            scenes,
             fps: fps as f32,
             source_kind,
             interaction_state: InteractionState::default(),
+            qh,
         };
 
         info!("Engine initialized in {:?}", engine_init_start.elapsed());
@@ -199,34 +127,27 @@ impl Engine {
             Timer::from_duration(Duration::from_secs_f32(1.0 / frame_fps)),
             move |_, _, engine| {
                 let dt = Duration::from_secs_f32(1.0 / engine.fps);
-                engine.current_source.update(dt);
-                engine.current_source.render(&engine.ctx, &engine.interaction_state);
+                for scene in &mut engine.scenes {
+                    scene.update(dt);
+                    scene.render(&engine.interaction_state);
+                }
                 TimeoutAction::ToDuration(Duration::from_secs_f32(1.0 / engine.fps))
             },
         );
 
-        if matches!(source_kind, SourceKind::Media) {
-            let rotation_interval = engine.rotation_interval;
-            let transition_duration = engine.transition_duration;
-            let transition_type = engine.transition_type;
-            let _ = event_loop_handler.insert_source(Timer::from_duration(rotation_interval), move |_, _, engine| {
-                match engine.current_source.next(&engine.ctx) {
-                    Ok(new_source) => {
-                        info!("Starting transition to new image");
-                        let old_source = std::mem::replace(&mut engine.current_source, new_source);
-                        engine.current_source.start_transition(
-                            Some(old_source),
-                            transition_duration,
-                            &engine.ctx,
-                            transition_type,
-                        );
-                    },
-                    Err(e) => {
-                        error!("Could not load new img: {e}");
-                    },
-                }
-                TimeoutAction::ToDuration(rotation_interval)
-            });
+        for scene_idx in 0..engine.scenes.len() {
+            if engine.scenes[scene_idx].is_media() {
+                let rotation_interval = engine.scenes[scene_idx].rotation_interval();
+                let _ =
+                    event_loop_handler.insert_source(Timer::from_duration(rotation_interval), move |_, _, engine| {
+                        if let Some(scene) = engine.scenes.get_mut(scene_idx) {
+                            if let Err(e) = scene.advance_source() {
+                                error!("Could not advance source: {e}");
+                            }
+                        }
+                        TimeoutAction::ToDuration(rotation_interval)
+                    });
+            }
         }
 
         ctrlc::set_handler({
@@ -245,32 +166,41 @@ impl Engine {
             .insert(event_loop.handle())
             .map_err(|e| EngineError::WaylandSourceInsert(e.to_string()))?;
 
+        info!("Starting event loop - outputs will be handled via Wayland events");
         event_loop.run(None, &mut engine, |_| ())?;
 
         Ok(())
     }
+}
 
-    fn load_random_img(dir: &Path) -> Option<DynamicImage> {
-        let mut rng = rand::rng();
-        let mut files: Vec<_> = dir
-            .read_dir()
-            .ok()?
-            .filter_map(std::result::Result::ok)
-            .map(|d| d.path())
-            .filter(|p| p.is_file())
-            .collect();
-
-        if files.is_empty() {
-            return None;
-        }
-
-        files.shuffle(&mut rng);
-        files
-            .into_iter()
-            .filter_map(|p| {
-                info!("Attempting to load image: {}", p.display());
-                image::open(&p).ok()
-            })
-            .next()
+fn create_scenes(config: &AppConfig, source_kind: SourceKind, smoke_config: crate::config::SmokeConfig) -> Vec<Scene> {
+    if config.scenes.is_empty() {
+        let scene_config = crate::config::MergedSceneConfig {
+            path: None,
+            layout: Default::default(),
+            fit: Default::default(),
+            monitors: Default::default(),
+            transition: config.transition.clone(),
+        };
+        info!("Creating default scene (matches all monitors)");
+        return vec![Scene::new(scene_config, source_kind, smoke_config)];
     }
+
+    config
+        .scenes
+        .iter()
+        .enumerate()
+        .map(|(i, scene_config)| {
+            info!(
+                "Creating scene {} (monitors: {:?})",
+                i,
+                scene_config
+                    .monitors
+                    .monitors()
+                    .map(|m| m.iter().map(|h| h.name()).collect::<Vec<_>>())
+                    .unwrap_or_else(|| vec!["*"])
+            );
+            Scene::new(scene_config.clone(), source_kind, smoke_config.clone())
+        })
+        .collect()
 }

@@ -3,36 +3,23 @@ use std::borrow::Cow;
 #[cfg(feature = "generate")]
 use schemars::{JsonSchema, json_schema};
 use serde::{Deserialize, Deserializer};
-use wayland_client::protocol::wl_output::WlOutput;
+use smithay_client_toolkit::{
+    output::OutputInfo, reexports::client::protocol::wl_output::WlOutput, shell::wlr_layer::LayerSurface,
+};
 
 /// A handle to a specific monitor
-///
-/// Contains the monitor's Wayland name (e.g., "DP-1", "HDMI-A-1")
-/// and optionally the actual Wayland output object.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MonitorHandle {
-    /// Monitor name as reported by Wayland (e.g., "DP-1", "HDMI-A-1")
     name: String,
-
-    /// Wayland output handle (populated during engine initialization)
-    output: Option<WlOutput>,
 }
 
 impl MonitorHandle {
     pub fn new(name: String) -> Self {
-        Self { name, output: None }
+        Self { name }
     }
 
     pub fn name(&self) -> &str {
         &self.name
-    }
-
-    pub fn output(&self) -> Option<&WlOutput> {
-        self.output.as_ref()
-    }
-
-    pub fn set_output(&mut self, output: WlOutput) {
-        self.output = Some(output);
     }
 }
 
@@ -44,34 +31,83 @@ impl std::hash::Hash for MonitorHandle {
 
 impl Eq for MonitorHandle {}
 
+impl std::fmt::Display for MonitorHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
+/// Runtime monitor with layer surface
+pub struct Monitor {
+    handle: MonitorHandle,
+    layer: LayerSurface,
+    output: Option<WlOutput>,
+    info: Option<OutputInfo>,
+}
+
+impl Monitor {
+    pub fn new(handle: MonitorHandle, layer: LayerSurface, output: WlOutput, info: OutputInfo) -> Self {
+        Self {
+            handle,
+            layer,
+            output: Some(output),
+            info: Some(info),
+        }
+    }
+
+    pub fn simple(handle: MonitorHandle, layer: LayerSurface) -> Self {
+        Self {
+            handle,
+            layer,
+            output: None,
+            info: None,
+        }
+    }
+
+    pub fn handle(&self) -> &MonitorHandle {
+        &self.handle
+    }
+
+    pub fn layer(&self) -> &LayerSurface {
+        &self.layer
+    }
+
+    pub fn output(&self) -> Option<&WlOutput> {
+        self.output.as_ref()
+    }
+
+    pub fn info(&self) -> Option<&OutputInfo> {
+        self.info.as_ref()
+    }
+
+    pub fn size(&self) -> (u32, u32) {
+        self.info
+            .as_ref()
+            .and_then(|i| i.logical_size)
+            .map(|(w, h)| (w as u32, h as u32))
+            .unwrap_or((1920, 1080))
+    }
+
+    pub fn scale_factor(&self) -> i32 {
+        self.info.as_ref().map(|i| i.scale_factor).unwrap_or(1)
+    }
+}
+
+impl std::fmt::Debug for Monitor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Monitor")
+            .field("handle", &self.handle)
+            .field("size", &self.size())
+            .field("scale", &self.scale_factor())
+            .finish()
+    }
+}
+
 /// Monitor specification for scene assignment
-///
-/// Specifies which monitors a scene should render to.
-/// Supports flexible specification formats for convenience.
-///
-/// # Examples
-///
-/// ```toml
-/// # All monitors
-/// monitors = "*"
-/// monitors = "any"
-///
-/// # Single monitor by name
-/// monitors = "DP-1"
-///
-/// # Multiple specific monitors
-/// monitors = ["DP-1", "HDMI-A-1"]
-///
-/// # Array with wildcard (resolves to all)
-/// monitors = ["DP-1", "*"]
-/// ```
 #[derive(Clone, Debug, PartialEq, Default)]
 pub enum MonitorsSpec {
-    /// Apply to all available monitors
     #[default]
     Any,
-
-    /// Apply to specific monitors by name
     Specific(Vec<MonitorHandle>),
 }
 
@@ -84,6 +120,13 @@ impl MonitorsSpec {
         match self {
             MonitorsSpec::Any => None,
             MonitorsSpec::Specific(handles) => Some(handles),
+        }
+    }
+
+    pub fn matches(&self, name: &str) -> bool {
+        match self {
+            MonitorsSpec::Any => true,
+            MonitorsSpec::Specific(handles) => handles.iter().any(|h| h.name() == name),
         }
     }
 }

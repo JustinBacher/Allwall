@@ -17,5 +17,5 @@
 mod context;
 mod texture;
 
-pub use context::Context;
+pub use context::{Context, ContextRef, GpuContext, RenderSurface};
 pub use texture::Texture;

@@ -12,6 +12,7 @@ use crate::{
     engine::Engine,
     prelude::*,
     sources::SourceKind,
+    transitions::TransitionType,
 };
 
 #[derive(Parser, Debug)]
@@ -32,6 +33,10 @@ pub struct Run {
     /// Interval between image rotations (in seconds)
     #[arg(short, long)]
     pub transition_interval: Option<u64>,
+
+    /// Transition animation type: fade, circle-top-left, circle-top-right, circle-bottom-left, circle-bottom-right, circle-center, circle-random
+    #[arg(long)]
+    pub transition_type: Option<TransitionType>,
 
     /// Target framerate
     #[arg(long)]
@@ -61,6 +66,7 @@ impl AllwallCommand for Run {
                 self.path.clone(),
                 self.transition_duration,
                 self.transition_interval,
+                self.transition_type,
                 self.fps,
             ),
             self.source,

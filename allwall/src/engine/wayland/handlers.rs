@@ -60,14 +60,20 @@ impl LayerShellHandler for Engine {
         &mut self,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-        _layer: &wlr_layer::LayerSurface,
+        layer: &wlr_layer::LayerSurface,
         configure: wlr_layer::LayerSurfaceConfigure,
         _serial: u32,
     ) {
-        info!("Layer configure event: new_size={:?}", configure.new_size);
-        self.ctx.resize(configure.new_size);
-        self.current_source
-            .render(&self.ctx, &crate::sources::InteractionState::default());
+        let (width, height) = configure.new_size;
+        info!("Layer configure event: new_size=({}, {})", width, height);
+
+        for scene in &mut self.scenes {
+            scene.on_layer_configure(layer, width, height);
+        }
+
+        for scene in &mut self.scenes {
+            scene.render(&self.interaction_state);
+        }
     }
 
     fn closed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _layer: &wlr_layer::LayerSurface) {
@@ -105,11 +111,48 @@ impl OutputHandler for Engine {
         &mut self.output_state
     }
 
-    fn new_output(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _output: wl_output::WlOutput) {}
+    fn new_output(&mut self, conn: &Connection, qh: &QueueHandle<Self>, output: wl_output::WlOutput) {
+        let Some(info) = self.output_state.info(&output) else {
+            return;
+        };
+        let output_name = info.name.as_deref().unwrap_or("unknown");
+        info!("New output detected: {}", output_name);
 
-    fn update_output(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _output: wl_output::WlOutput) {}
+        for scene in &mut self.scenes {
+            if scene.should_handle_output(output_name) {
+                if let Err(e) = scene.on_output_added(
+                    output.clone(),
+                    &info,
+                    self.gpu.clone(),
+                    conn,
+                    &self.compositor_state,
+                    &self.layer_shell,
+                    qh,
+                ) {
+                    warn!("Failed to add output '{}' to scene: {}", output_name, e);
+                }
+            }
+        }
+    }
 
-    fn output_destroyed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _output: wl_output::WlOutput) {}
+    fn update_output(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, output: wl_output::WlOutput) {
+        let Some(info) = self.output_state.info(&output) else {
+            return;
+        };
+        let output_name = info.name.as_deref().unwrap_or("unknown");
+        info!("Output updated: {}", output_name);
+
+        for scene in &mut self.scenes {
+            scene.on_output_updated(&output, &info);
+        }
+    }
+
+    fn output_destroyed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, output: wl_output::WlOutput) {
+        info!("Output destroyed");
+        for scene in &mut self.scenes {
+            scene.on_output_removed(&output);
+        }
+    }
 }
 
 delegate_compositor!(Engine);
