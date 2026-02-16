@@ -1,10 +1,10 @@
-use std::io;
+use std::io::stdout;
 
 use clap::CommandFactory;
-use clap_complete::{generate, Shell};
+use clap_complete::{Shell, generate};
 
 use super::AllwallCommand;
-use crate::prelude::*;
+use crate::{Cli, prelude::Result};
 
 /// Generate shell completions for allwall
 ///
@@ -23,16 +23,18 @@ use crate::prelude::*;
 /// ```
 #[derive(clap::Parser, Debug)]
 pub struct Completions {
-	/// Shell to generate completions for
-	#[arg(value_enum)]
-	shell: Shell,
+    /// Shell to generate completions for
+    #[arg(value_enum)]
+    shell: Shell,
 }
 
 impl AllwallCommand for Completions {
-	async fn execute(&self) -> Result<()> {
-		let mut cmd = crate::Cli::command();
-		let name = "allwall";
-		generate(self.shell, &mut cmd, name, &mut io::stdout());
-		Ok(())
-	}
+    async fn execute(&self) -> Result<()> {
+        let mut cmd = Cli::command();
+        let name = "allwall";
+
+        generate(self.shell, &mut cmd, name, &mut stdout());
+
+        Ok(())
+    }
 }

@@ -29,13 +29,29 @@ Codebase is organized strictly by function. Do not deviate from the module struc
 - `cargo fmt` — Format all source files
 - `cargo fmt --check` — Check formatting without changes
 
+## Quality Gate
+
+Before committing or opening a PR, run:
+
+```
+cargo validate
+```
+
+This runs:
+- Format check
+- Clippy linting
+- Tests
+- Dependency audit
+
+CI enforces this on all PRs.
+
 ## Code Style
 
 ### Formatting
 
-- Use **hard tabs** for indentation (configured in rustfmt.toml)
-- Edition 2021 Rust
-- Max line width 100 chars default
+- Use spaces for indentation (configured in rustfmt.toml)
+- Edition 2024 Rust
+- Max line width 120 chars default
 
 ### Type Conversions
 
@@ -74,7 +90,7 @@ pub enum Error {
 
 ### Logging
 
-Never use `println!`/`eprintln!`. Use `log` crate with `env_logger` initialization.
+Never use `println!`/`eprintln!`. Use `tracing` crate with `tracing-subscriber` initialization.
 
 ### Imports
 
@@ -111,3 +127,12 @@ pub trait AllwallCommand {
     fn execute(&self) -> Result<()>;
 }
 ```
+
+## Development Tasks (xtask)
+
+The project uses a cargo xtask for development automation:
+
+- `cargo xtask check` — Run full quality gate (alias: `cargo validate`)
+- `cargo xtask generate schema` — Generate JSON schema
+- `cargo xtask generate nix` — Generate NixOS module
+- `cargo xtask generate all` — Generate all artifacts (alias: `cargo generate all`)

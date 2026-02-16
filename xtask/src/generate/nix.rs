@@ -1,20 +1,24 @@
 use std::path::Path;
 
-pub fn generate(output_dir: &Path) {
-	println!("Generating NixOS module and flake...");
+use anyhow::Result;
+use tracing::info;
 
-	let nix_dir = output_dir.join("nix");
-	std::fs::create_dir_all(&nix_dir).expect("Failed to create nix directory");
+pub fn generate(output_dir: &Path) -> Result<()> {
+    info!("Generating NixOS module and flake...");
 
-	generate_module(&nix_dir);
-	generate_flake(&nix_dir);
+    let nix_dir = output_dir.join("nix");
+    std::fs::create_dir_all(&nix_dir)?;
 
-	println!("  Module: {}", nix_dir.join("module.nix").display());
-	println!("  Flake: {}", nix_dir.join("flake.nix").display());
+    generate_module(&nix_dir)?;
+    generate_flake(&nix_dir)?;
+
+    info!("\tModule: {}", nix_dir.join("module.nix").display());
+    info!("\tFlake: {}", nix_dir.join("flake.nix").display());
+    Ok(())
 }
 
-fn generate_module(nix_dir: &Path) {
-	let module = r#"{ config, lib, pkgs, ... }:
+fn generate_module(nix_dir: &Path) -> Result<()> {
+    let module = r#"{ config, lib, pkgs, ... }:
 
 let
   cfg = config.services.allwall;
@@ -154,11 +158,12 @@ in
 }
 "#;
 
-	std::fs::write(nix_dir.join("module.nix"), module).expect("Failed to write module.nix");
+    std::fs::write(nix_dir.join("module.nix"), module)?;
+    Ok(())
 }
 
-fn generate_flake(nix_dir: &Path) {
-	let flake = r#"{ 
+fn generate_flake(nix_dir: &Path) -> Result<()> {
+    let flake = r#"{ 
   description = "Allwall - High-performance Wayland wallpaper renderer";
   
   inputs = {
@@ -249,5 +254,6 @@ fn generate_flake(nix_dir: &Path) {
 }
 "#;
 
-	std::fs::write(nix_dir.join("flake.nix"), flake).expect("Failed to write flake.nix");
+    std::fs::write(nix_dir.join("flake.nix"), flake)?;
+    Ok(())
 }
