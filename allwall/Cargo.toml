@@ -31,6 +31,8 @@ tracing-subscriber = { workspace = true }
 
 # Graphics/ Wayland
 wgpu = { workspace = true }
+wgpu-hal = { workspace = true }
+ash = { workspace = true }
 bytemuck = { workspace = true }
 smithay-client-toolkit = { workspace = true }
 wayland-protocols = { workspace = true }
@@ -42,7 +44,9 @@ raw-window-handle = { workspace = true }
 gstreamer = { workspace = true }
 gstreamer-app = { workspace = true }
 gstreamer-video = { workspace = true }
+gstreamer-allocators = "0.22"
 image = { workspace = true }
+vk-video = { workspace = true }
 
 # Utilities
 calloop = { workspace = true }
@@ -57,6 +61,7 @@ xdg = { workspace = true }
 mime-type = { workspace = true }
 mime_guess = { workspace = true }
 bincode = { workspace = true }
+libc = "0.2"
 
 # Metadata generation
 schemars = { workspace = true, optional = true }

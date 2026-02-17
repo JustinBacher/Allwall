@@ -21,6 +21,11 @@ async fn main() -> allwall::prelude::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    if let Err(e) = gstreamer::init() {
+        eprintln!("Failed to initialize GStreamer: {}", e);
+        std::process::exit(1);
+    }
+
     match cli.command {
         Commands::Run(cmd) => cmd.execute().await?,
         Commands::Version(cmd) => cmd.execute().await?,

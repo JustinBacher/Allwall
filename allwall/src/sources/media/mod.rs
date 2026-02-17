@@ -61,10 +61,11 @@ impl MediaSource {
                         return Ok(Self::Still(still));
                     }
                 },
-                Some(MediaKind::Video) => {
-                    if let Ok(video) = Video::new(path.clone(), dir.clone(), ctx) {
-                        return Ok(Self::Video(video));
-                    }
+                Some(MediaKind::Video) => match Video::new(path.clone(), dir.clone(), ctx) {
+                    Ok(video) => return Ok(Self::Video(video)),
+                    Err(e) => {
+                        warn!("Failed to create video source for {:?}: {}", path, e);
+                    },
                 },
                 None => continue,
             }

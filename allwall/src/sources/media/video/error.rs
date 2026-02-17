@@ -18,11 +18,8 @@ pub enum VideoError {
     #[error("Video file not found: {0}")]
     FileNotFound(std::path::PathBuf),
 
-    #[error("Unsupported codec: {0}")]
-    UnsupportedCodec(String),
-
-    #[error("DMABUF allocation failed: {0}")]
-    DmabufAlloc(String),
+    #[error("Failed to read video file: {0}")]
+    FileRead(#[from] std::io::Error),
 
     #[error("Failed to pull sample from appsink: {0}")]
     SamplePull(String),
@@ -35,4 +32,10 @@ pub enum VideoError {
 
     #[error("No video frames available")]
     NoFrames,
+
+    #[error("Texture creation failed: {0}")]
+    TextureCreation(String),
+
+    #[error("Generic error: {0}")]
+    Generic(String),
 }

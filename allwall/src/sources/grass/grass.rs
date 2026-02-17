@@ -601,7 +601,6 @@ fn create_dirt_pipeline(
             module: shader,
             entry_point: "vs_main",
             buffers: &[DirtVertex::desc()],
-            compilation_options: Default::default(),
         },
         fragment: Some(FragmentState {
             module: shader,
@@ -611,7 +610,6 @@ fn create_dirt_pipeline(
                 blend: Some(BlendState::REPLACE),
                 write_mask: ColorWrites::ALL,
             })],
-            compilation_options: Default::default(),
         }),
         primitive: PrimitiveState {
             topology: PrimitiveTopology::TriangleList,
@@ -650,7 +648,6 @@ fn create_grass_pipeline(
             module: shader,
             entry_point: "vs_main",
             buffers: &[BladeVertex::desc(), BladeInstance::desc()],
-            compilation_options: Default::default(),
         },
         fragment: Some(FragmentState {
             module: shader,
@@ -660,7 +657,6 @@ fn create_grass_pipeline(
                 blend: Some(BlendState::ALPHA_BLENDING),
                 write_mask: ColorWrites::ALL,
             })],
-            compilation_options: Default::default(),
         }),
         primitive: PrimitiveState {
             topology: PrimitiveTopology::TriangleList,

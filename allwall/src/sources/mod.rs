@@ -340,7 +340,6 @@ pub fn create_pipeline(
             module: shader,
             entry_point: "vs_main",
             buffers: &[FVertex::desc()],
-            compilation_options: Default::default(),
         },
         fragment: Some(FragmentState {
             module: shader,
@@ -350,7 +349,6 @@ pub fn create_pipeline(
                 blend: Some(BlendState::REPLACE),
                 write_mask: ColorWrites::ALL,
             })],
-            compilation_options: Default::default(),
         }),
         primitive: PrimitiveState {
             topology: PrimitiveTopology::TriangleList,

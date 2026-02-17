@@ -204,4 +204,73 @@ impl Texture {
             sampler: Arc::new(sampler),
         }
     }
+
+    /// Update texture with raw NV12 pixel data
+    ///
+    /// NV12 format: Y plane at full resolution, UV plane at half resolution (4:2:0 chroma subsampling)
+    /// This method should be called on textures created with R8Unorm (Y) or Rg8Unorm (UV) formats.
+    ///
+    /// # Arguments
+    /// - `queue`: WGPU queue for submitting writes
+    /// - `data`: Raw pixel data for this plane
+    /// - `width`: Plane width in pixels
+    /// - `height`: Plane height in pixels
+    /// - `stride`: Row stride in bytes (may be larger than width * bytes_per_pixel for alignment)
+    pub fn update_from_raw_pixels(
+        &self,
+        queue: &wgpu::Queue,
+        data: &[u8],
+        width: u32,
+        height: u32,
+        stride: u32,
+    ) -> Result<()> {
+        if width == 0 || height == 0 {
+            return Err(crate::prelude::Error::Generic("Invalid texture dimensions".to_string()));
+        }
+
+        // Determine bytes per pixel based on texture format
+        let _bytes_per_pixel = match self.texture.format() {
+            wgpu::TextureFormat::R8Unorm => 1,
+            wgpu::TextureFormat::Rg8Unorm => 2,
+            fmt => {
+                return Err(crate::prelude::Error::Generic(format!(
+                    "Unsupported texture format for NV12 update: {:?}",
+                    fmt
+                )));
+            },
+        };
+
+        // Validate that we have enough data
+        let expected_size = (stride as usize) * (height as usize);
+        if data.len() < expected_size {
+            return Err(crate::prelude::Error::Generic(format!(
+                "Insufficient data: expected {} bytes, got {}",
+                expected_size,
+                data.len()
+            )));
+        }
+
+        // Write texture data with proper stride handling
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &self.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            data,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(stride),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        Ok(())
+    }
 }

@@ -1,9 +1,10 @@
-pub mod decoder;
 pub mod error;
 
 use std::{iter::once, path::PathBuf, time::Duration};
 
-use decoder::Decoder;
+use gstreamer::{Caps, Pipeline, State, prelude::*};
+use gstreamer_app::AppSink;
+use gstreamer_video::VideoFrame;
 
 use crate::{
     engine::{Context, Texture},
@@ -15,6 +16,8 @@ use crate::{
     transitions::{CircleOrigin, CircleRevealTransition, FadeTransition, Transition, TransitionType},
 };
 
+use self::error::VideoError;
+
 #[derive(Debug)]
 pub struct Video {
     texture: Texture,
@@ -25,23 +28,28 @@ pub struct Video {
     uniform_bind_group: wgpu::BindGroup,
     render_pipeline: wgpu::RenderPipeline,
     state: RenderState,
-    decoder: Decoder,
-    video_path: PathBuf,
+    _video_path: PathBuf,
     video_dir: PathBuf,
+    pipeline: Option<Pipeline>,
+    appsink: Option<AppSink>,
+    frame_aspect_ratio: f32,
 }
 
 impl Video {
     pub fn new(video_path: PathBuf, video_dir: PathBuf, ctx: &Context) -> Result<Self> {
-        debug!("Creating Video source from: {:?}", video_path);
+        debug!("Creating Video source from {:?}", video_path);
 
-        let decoder = Decoder::new(&video_path)?;
-        let (width, height) = Self::get_video_dimensions(&decoder);
+        if !video_path.exists() {
+            return Err(VideoError::FileNotFound(video_path).into());
+        }
 
-        let texture = Texture::empty_writable(ctx, width, height);
+        let texture = Self::create_placeholder_texture(ctx);
+
         let (texture_bind_group_layout, texture_bind_group) = create_texture_binds(&[&texture], ctx);
 
         let vertex_buffer = create_vertex_buffer(ctx);
         let index_buffer = create_index_buffer(ctx);
+
         let (uniform_buffer, uniform_bind_group_layout, uniform_bind_group) = create_uniform_binds(32, ctx);
 
         let render_pipeline = create_pipeline(
@@ -51,7 +59,7 @@ impl Video {
             ctx.config(),
         );
 
-        let state = RenderState::default();
+        let (pipeline, appsink) = Self::create_pipeline_and_sink(&video_path)?;
 
         Ok(Self {
             texture,
@@ -61,63 +69,201 @@ impl Video {
             uniform_buffer,
             uniform_bind_group,
             render_pipeline,
-            state,
-            decoder,
-            video_path,
+            state: RenderState::default(),
+            _video_path: video_path,
             video_dir,
+            pipeline: Some(pipeline),
+            appsink: Some(appsink),
+            frame_aspect_ratio: 16.0 / 9.0,
         })
     }
 
-    pub fn video_path(&self) -> &PathBuf {
-        &self.video_path
+    fn create_placeholder_texture(ctx: &Context) -> Texture {
+        let device = ctx.device();
+        let size = wgpu::Extent3d {
+            width: 1920,
+            height: 1080,
+            depth_or_array_layers: 1,
+        };
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("video_placeholder_texture"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+
+        let view = texture.create_view(&Default::default());
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        Texture::from_existing(texture, view, sampler)
+    }
+
+    fn create_pipeline_and_sink(video_path: &PathBuf) -> Result<(Pipeline, AppSink)> {
+        let path_str = video_path
+            .to_str()
+            .ok_or_else(|| VideoError::Generic("Invalid path encoding".to_string()))?;
+        let pipeline_str = format!(
+            "filesrc location='{}' ! decodebin ! videoconvert ! videoscale ! video/x-raw,format=RGBA,width=1920,height=1080 ! appsink name=sink caps=video/x-raw,format=RGBA",
+            path_str
+        );
+
+        let pipeline = gstreamer::parse::launch(&pipeline_str)
+            .map_err(|e| VideoError::PipelineParse(e.to_string()))?
+            .downcast::<Pipeline>()
+            .map_err(|_| VideoError::PipelineDowncast)?;
+
+        let appsink = pipeline
+            .by_name("sink")
+            .ok_or(VideoError::SinkNotFound("sink"))?
+            .downcast::<AppSink>()
+            .map_err(|_| VideoError::SinkCast)?;
+
+        appsink.set_caps(Some(&Caps::builder("video/x-raw").field("format", "RGBA").build()));
+
+        pipeline
+            .set_state(State::Playing)
+            .map_err(|e| VideoError::PipelineStart(e.to_string()))?;
+
+        Ok((pipeline, appsink))
+    }
+
+    fn pull_frame(&mut self, ctx: &Context) -> Result<()> {
+        let appsink = self.appsink.as_ref().ok_or(VideoError::NoFrames)?;
+
+        let sample = appsink
+            .try_pull_sample(gstreamer::ClockTime::from_mseconds(10))
+            .ok_or_else(|| VideoError::NoFrames)?;
+
+        let buffer = sample.buffer().ok_or(VideoError::BufferNotFound)?;
+        let caps = sample
+            .caps()
+            .ok_or_else(|| VideoError::Generic("No caps in sample".to_string()))?;
+        let structure = caps
+            .structure(0)
+            .ok_or_else(|| VideoError::Generic("No structure in caps".to_string()))?;
+
+        let width = structure.get::<i32>("width").map_err(|e| VideoError::Generic(e.to_string()))? as u32;
+        let height = structure.get::<i32>("height").map_err(|e| VideoError::Generic(e.to_string()))? as u32;
+
+        self.frame_aspect_ratio = width as f32 / height as f32;
+
+        let video_info =
+            gstreamer_video::VideoInfo::from_caps(&caps).map_err(|e| VideoError::BufferMap(format!("{:?}", e)))?;
+
+        let frame = VideoFrame::from_buffer_readable(buffer.to_owned(), &video_info)
+            .map_err(|e| VideoError::BufferMap(format!("{:?}", e)))?;
+
+        let data = frame.plane_data(0).map_err(|e| VideoError::BufferMap(format!("{:?}", e)))?;
+
+        let device = ctx.device();
+        let queue = ctx.queue();
+
+        let size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("video_frame_texture"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+
+        queue.write_texture(
+            texture.as_image_copy(),
+            data,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * width),
+                rows_per_image: Some(height),
+            },
+            size,
+        );
+
+        let view = texture.create_view(&Default::default());
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        self.texture = Texture::from_existing(texture, view, sampler);
+
+        let (texture_bind_group_layout, texture_bind_group) = create_texture_binds(&[&self.texture], ctx);
+
+        let (_, _, _uniform_bind_group) = create_uniform_binds(32, ctx);
+
+        self.texture_bind_group = texture_bind_group;
+
+        let device = ctx.device();
+        let uniform_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::all(),
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
+        self.render_pipeline = create_pipeline(
+            ctx,
+            &[&texture_bind_group_layout, &uniform_bind_group_layout],
+            &device.create_shader_module(wgpu::include_wgsl!("./shaders/video.wgsl")),
+            ctx.config(),
+        );
+
+        Ok(())
     }
 
     pub fn directory(&self) -> &PathBuf {
         &self.video_dir
     }
 
-    fn get_video_dimensions(decoder: &Decoder) -> (u32, u32) {
-        if let Some(caps) = decoder.appsink().caps() {
-            if let Some(s) = caps.structure(0) {
-                let width = s.get::<i32>("width").unwrap_or(1920) as u32;
-                let height = s.get::<i32>("height").unwrap_or(1080) as u32;
-                return (width, height);
-            }
+    fn render_normal(&mut self, ctx: &Context) {
+        if let Err(e) = self.pull_frame(ctx) {
+            debug!("Failed to pull frame: {}", e);
         }
-        (1920, 1080)
-    }
 
-    fn update_texture_from_frame(&mut self, ctx: &Context) {
-        if let Some(sample) = self.decoder.pull_sample() {
-            if let Some(buffer) = sample.buffer() {
-                if let Ok(map) = buffer.map_readable() {
-                    let data = map.as_slice();
-                    let size = self.texture.size();
-
-                    ctx.queue().write_texture(
-                        self.texture.texture().as_image_copy(),
-                        data,
-                        wgpu::ImageDataLayout {
-                            offset: 0,
-                            bytes_per_row: Some(4 * size.width),
-                            rows_per_image: Some(size.height),
-                        },
-                        size,
-                    );
-                }
-            }
-        }
-    }
-
-    fn render_normal(&self, ctx: &Context) {
         let queue = ctx.queue();
         let device = ctx.device();
         let surface = ctx.surface();
 
         debug!(
-            "Video rendering, surface aspect: {:.2}, texture aspect: {:.2}",
+            "Video rendering, surface aspect: {:.2}, frame aspect: {:.2}",
             ctx.surface_aspect_ratio(),
-            self.texture.aspect_ratio()
+            self.frame_aspect_ratio
         );
 
         let output = match surface.get_current_texture() {
@@ -132,7 +278,7 @@ impl Video {
         queue.write_buffer(
             &self.uniform_buffer,
             0,
-            bytemuck::cast_slice(&[ctx.surface_aspect_ratio() / self.texture.aspect_ratio()]),
+            bytemuck::cast_slice(&[ctx.surface_aspect_ratio() / self.frame_aspect_ratio]),
         );
 
         let mut encoder = device.create_command_encoder(&Default::default());
@@ -246,7 +392,6 @@ impl Source for Video {
 
 impl BasicSource for Video {
     fn render(&mut self, ctx: &Context) {
-        self.update_texture_from_frame(ctx);
         match &self.state {
             RenderState::Transitioning(transition) => {
                 transition.render(ctx, &self.texture);
@@ -254,6 +399,14 @@ impl BasicSource for Video {
             _ => {
                 self.render_normal(ctx);
             },
+        }
+    }
+}
+
+impl Drop for Video {
+    fn drop(&mut self) {
+        if let Some(pipeline) = self.pipeline.take() {
+            let _ = pipeline.set_state(State::Null);
         }
     }
 }

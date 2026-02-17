@@ -30,7 +30,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Graphics/ Wayland
-wgpu = "0.20.1"
+wgpu = "0.19.4"
 bytemuck = { version = "1.15", features = ["derive"] }
 smithay-client-toolkit = "0.19.0"
 wayland-protocols = { version = "0.30.0", features = ["client", "staging"] }
@@ -43,6 +43,11 @@ gstreamer = "0.22"
 gstreamer-app = "0.22"
 gstreamer-video = "0.22"
 image = "0.25"
+
+# HAL for DMA-BUF import
+wgpu-hal = "0.19"
+ash = "0.38"  # Vulkan bindings for external memory import
+vk-video = "0.1"
 
 # Utilities
 rand = "0.9"

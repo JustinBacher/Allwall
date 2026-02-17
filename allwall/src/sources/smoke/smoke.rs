@@ -854,7 +854,6 @@ fn create_sim_pipeline(
             module: shader,
             entry_point: "vs_main",
             buffers: vertex_layouts,
-            compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {
             module: shader,
@@ -864,7 +863,6 @@ fn create_sim_pipeline(
                 blend: Some(wgpu::BlendState::REPLACE),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
-            compilation_options: Default::default(),
         }),
         primitive: wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleList,

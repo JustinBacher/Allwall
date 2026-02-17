@@ -15,7 +15,9 @@
 #![allow(unsafe_code)]
 
 mod context;
+mod dmabuf;
 mod texture;
 
 pub use context::{Context, ContextRef, GpuContext, RenderSurface};
+pub use dmabuf::{DmabufFormat, DmabufFrame, DmabufPlane, import_dmabuf_frame};
 pub use texture::Texture;
